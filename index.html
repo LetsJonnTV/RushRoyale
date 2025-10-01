@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rush Royal - Tower Defense</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="game-container">
+        <!-- Header mit modernem Design -->
+        <header class="game-header">
+            <div class="header-left">
+                <h1 class="game-title">
+                    <i class="fas fa-crown"></i>
+                    Rush Royal
+                </h1>
+                <div class="game-subtitle">Tower Defense Elite</div>
+            </div>
+            
+            <div class="stats-panel">
+                <div class="stat-card lives">
+                    <div class="stat-icon">
+                        <i class="fas fa-heart"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="lives">20</div>
+                        <div class="stat-label">Leben</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card money">
+                    <div class="stat-icon">
+                        <i class="fas fa-coins"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="money">100</div>
+                        <div class="stat-label">Gold</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card score">
+                    <div class="stat-icon">
+                        <i class="fas fa-trophy"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="score">0</div>
+                        <div class="stat-label">Punkte</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card wave">
+                    <div class="stat-icon">
+                        <i class="fas fa-wave-square"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="wave">1</div>
+                        <div class="stat-label">Welle</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card speed">
+                    <div class="stat-icon">
+                        <i class="fas fa-tachometer-alt"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="gameSpeed">1x</div>
+                        <div class="stat-label">Speed</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="achievements-bar">
+                <div id="currentAchievement" class="achievement-notify">
+                    <i class="fas fa-medal"></i>
+                    <span class="achievement-text"></span>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Main Game Area -->
+        <main class="main-game-area">
+            <div class="game-canvas-container">
+                <canvas id="gameCanvas" width="800" height="600"></canvas>
+                <div class="canvas-overlay">
+                    <div class="wave-counter">
+                        <div class="wave-progress">
+                            <div id="waveProgress" class="progress-bar"></div>
+                        </div>
+                        <div class="wave-text">Welle <span id="currentWave">1</span></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Control Panel -->
+            <aside class="control-panel">
+                <!-- Tower Shop -->
+                <section class="panel-section tower-shop">
+                    <div class="section-header">
+                        <h3><i class="fas fa-hammer"></i> Tower Arsenal</h3>
+                    </div>
+                    
+                    <div class="tower-grid">
+                        <div class="tower-card" data-tower="basic" data-cost="20">
+                            <div class="tower-preview basic-tower">
+                                <i class="fas fa-bullseye"></i>
+                            </div>
+                            <div class="tower-info">
+                                <h4>Basic Tower</h4>
+                                <div class="tower-stats">
+                                    <span><i class="fas fa-sword"></i> 10</span>
+                                    <span><i class="fas fa-crosshairs"></i> 80</span>
+                                </div>
+                                <div class="tower-cost">
+                                    <i class="fas fa-coins"></i> 20
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="tower-card" data-tower="ice" data-cost="40">
+                            <div class="tower-preview ice-tower">
+                                <i class="fas fa-snowflake"></i>
+                            </div>
+                            <div class="tower-info">
+                                <h4>Ice Tower</h4>
+                                <div class="tower-stats">
+                                    <span><i class="fas fa-sword"></i> 5</span>
+                                    <span><i class="fas fa-hourglass-half"></i> Slow</span>
+                                </div>
+                                <div class="tower-cost">
+                                    <i class="fas fa-coins"></i> 40
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="tower-card" data-tower="fire" data-cost="60">
+                            <div class="tower-preview fire-tower">
+                                <i class="fas fa-fire"></i>
+                            </div>
+                            <div class="tower-info">
+                                <h4>Fire Tower</h4>
+                                <div class="tower-stats">
+                                    <span><i class="fas fa-sword"></i> 15</span>
+                                    <span><i class="fas fa-explosion"></i> Splash</span>
+                                </div>
+                                <div class="tower-cost">
+                                    <i class="fas fa-coins"></i> 60
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="tower-card" data-tower="lightning" data-cost="100">
+                            <div class="tower-preview lightning-tower">
+                                <i class="fas fa-bolt"></i>
+                            </div>
+                            <div class="tower-info">
+                                <h4>Lightning</h4>
+                                <div class="tower-stats">
+                                    <span><i class="fas fa-sword"></i> 25</span>
+                                    <span><i class="fas fa-link"></i> Chain</span>
+                                </div>
+                                <div class="tower-cost">
+                                    <i class="fas fa-coins"></i> 100
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="tower-card" data-tower="poison" data-cost="80">
+                            <div class="tower-preview poison-tower">
+                                <i class="fas fa-skull-crossbones"></i>
+                            </div>
+                            <div class="tower-info">
+                                <h4>Poison</h4>
+                                <div class="tower-stats">
+                                    <span><i class="fas fa-sword"></i> 8</span>
+                                    <span><i class="fas fa-virus"></i> DoT</span>
+                                </div>
+                                <div class="tower-cost">
+                                    <i class="fas fa-coins"></i> 80
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="tower-card" data-tower="sniper" data-cost="120">
+                            <div class="tower-preview sniper-tower">
+                                <i class="fas fa-crosshairs"></i>
+                            </div>
+                            <div class="tower-info">
+                                <h4>Sniper</h4>
+                                <div class="tower-stats">
+                                    <span><i class="fas fa-sword"></i> 50</span>
+                                    <span><i class="fas fa-eye"></i> 150</span>
+                                </div>
+                                <div class="tower-cost">
+                                    <i class="fas fa-coins"></i> 120
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="tower-card" data-tower="tesla" data-cost="150">
+                            <div class="tower-preview tesla-tower">
+                                <i class="fas fa-zap"></i>
+                            </div>
+                            <div class="tower-info">
+                                <h4>Tesla</h4>
+                                <div class="tower-stats">
+                                    <span><i class="fas fa-sword"></i> 30</span>
+                                    <span><i class="fas fa-pause"></i> Stun</span>
+                                </div>
+                                <div class="tower-cost">
+                                    <i class="fas fa-coins"></i> 150
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Special Abilities -->
+                <section class="panel-section abilities-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-magic"></i> Spezialfähigkeiten</h3>
+                    </div>
+                    
+                    <div class="abilities-grid">
+                        <button id="meteorStrike" class="ability-card" data-cost="50">
+                            <div class="ability-icon meteor">
+                                <i class="fas fa-meteor"></i>
+                            </div>
+                            <div class="ability-info">
+                                <h4>Meteor</h4>
+                                <div class="ability-cost">50G</div>
+                            </div>
+                            <div class="ability-cooldown">
+                                <div class="cooldown-ring"></div>
+                            </div>
+                        </button>
+                        
+                        <button id="freezeAll" class="ability-card" data-cost="30">
+                            <div class="ability-icon freeze">
+                                <i class="fas fa-snowflake"></i>
+                            </div>
+                            <div class="ability-info">
+                                <h4>Freeze</h4>
+                                <div class="ability-cost">30G</div>
+                            </div>
+                            <div class="ability-cooldown">
+                                <div class="cooldown-ring"></div>
+                            </div>
+                        </button>
+                        
+                        <button id="goldRush" class="ability-card" data-cost="100">
+                            <div class="ability-icon gold">
+                                <i class="fas fa-coins"></i>
+                            </div>
+                            <div class="ability-info">
+                                <h4>Gold Rush</h4>
+                                <div class="ability-cost">100G</div>
+                            </div>
+                            <div class="ability-cooldown">
+                                <div class="cooldown-ring"></div>
+                            </div>
+                        </button>
+                    </div>
+                </section>
+                
+                <!-- Game Controls -->
+                <section class="panel-section controls-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-gamepad"></i> Steuerung</h3>
+                    </div>
+                    
+                    <div class="controls-grid">
+                        <button id="startWave" class="control-btn primary">
+                            <i class="fas fa-play"></i>
+                            <span>Nächste Welle</span>
+                        </button>
+                        
+                        <button id="pauseGame" class="control-btn secondary">
+                            <i class="fas fa-pause"></i>
+                            <span>Pause</span>
+                        </button>
+                        
+                        <button id="speedUp" class="control-btn accent">
+                            <i class="fas fa-forward"></i>
+                            <span>2x Speed</span>
+                        </button>
+                        
+                        <button id="restartGame" class="control-btn danger">
+                            <i class="fas fa-redo"></i>
+                            <span>Neustart</span>
+                        </button>
+                    </div>
+                </section>
+            </aside>
+        </main>
+        
+        <!-- Tower Upgrade Popup -->
+        <div id="towerUpgrade" class="upgrade-section">
+            <div class="upgrade-popup">
+                <button class="upgrade-close" onclick="game.hideTowerUpgrade()">
+                    <i class="fas fa-times"></i>
+                </button>
+                
+                <div class="upgrade-content">
+                    <div class="section-header">
+                        <h3><i class="fas fa-level-up-alt"></i> Tower Upgrade</h3>
+                    </div>
+                    
+                    <div id="upgradeInfo" class="upgrade-info"></div>
+                    
+                    <div class="upgrade-actions">
+                        <button id="upgradeBtn" class="upgrade-btn">
+                            <i class="fas fa-arrow-up"></i>
+                            <span>Upgrade (50G)</span>
+                        </button>
+                        
+                        <button id="sellBtn" class="sell-btn">
+                            <i class="fas fa-trash"></i>
+                            <span>Verkaufen</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Game Instructions -->
+        <footer class="game-instructions">
+            <div class="instructions-toggle">
+                <button id="toggleInstructions">
+                    <i class="fas fa-question-circle"></i>
+                    Spielanleitung
+                </button>
+            </div>
+            
+            <div id="instructionsPanel" class="instructions-panel">
+                <div class="instructions-content">
+                    <h3><i class="fas fa-info-circle"></i> Spielanleitung</h3>
+                    <div class="instructions-grid">
+                        <div class="instruction-item">
+                            <i class="fas fa-mouse-pointer"></i>
+                            <span>Wähle einen Tower und klicke auf das Spielfeld zum Platzieren</span>
+                        </div>
+                        <div class="instruction-item">
+                            <i class="fas fa-crosshairs"></i>
+                            <span>Klicke auf platzierte Tower für Upgrades und Verkauf</span>
+                        </div>
+                        <div class="instruction-item">
+                            <i class="fas fa-shield-alt"></i>
+                            <span>Verhindere, dass Gegner deine Basis erreichen</span>
+                        </div>
+                        <div class="instruction-item">
+                            <i class="fas fa-magic"></i>
+                            <span>Nutze Spezialfähigkeiten in kritischen Momenten</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </footer>
+    </div>
+    
+    <script src="game.js"></script>
+</body>
+</html>
