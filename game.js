@@ -29,10 +29,27 @@ class Game {
         this.totalKills = 0;
         this.towersBuilt = 0;
         this.goldEarned = 0;
+        this.autoWaveEnabled = false;
+        this.autoWaveDelay = 3000; // 3 Sekunden Verzögerung
+        this.bossWave = false;
+        this.comboMultiplier = 1;
+        this.comboKills = 0;
+        this.lastKillTime = 0;
+        this.powerUps = [];
+        this.screenShake = 0;
         this.specialAbilities = {
             meteorStrike: { cooldown: 0, maxCooldown: 300 },
             freezeAll: { cooldown: 0, maxCooldown: 600 },
-            goldRush: { cooldown: 0, maxCooldown: 900 }
+            goldRush: { cooldown: 0, maxCooldown: 900 },
+            timeWarp: { cooldown: 0, maxCooldown: 800 },
+            shieldBoost: { cooldown: 0, maxCooldown: 400 },
+            damageBoost: { cooldown: 0, maxCooldown: 500 }
+        };
+        
+        this.activeEffects = {
+            timeWarp: false,
+            shieldBoost: false,
+            damageBoost: false
         };
         
         // Spielfeld-Pfad
@@ -110,11 +127,13 @@ class Game {
             this.startWave();
         });
         
+        document.getElementById('autoWave').addEventListener('click', () => {
+            this.toggleAutoWave();
+        });
+
         document.getElementById('pauseGame').addEventListener('click', () => {
             this.togglePause();
-        });
-        
-        document.getElementById('restartGame').addEventListener('click', () => {
+        });        document.getElementById('restartGame').addEventListener('click', () => {
             this.restartGame();
         });
         
@@ -124,6 +143,10 @@ class Game {
         
         document.getElementById('sellBtn').addEventListener('click', () => {
             this.sellTower();
+        });
+        
+        document.getElementById('upgradeClose').addEventListener('click', () => {
+            this.hideTowerUpgrade();
         });
         
         // Speed Control
@@ -142,6 +165,18 @@ class Game {
         
         document.getElementById('goldRush').addEventListener('click', () => {
             this.useAbility('goldRush');
+        });
+        
+        document.getElementById('timeWarp').addEventListener('click', () => {
+            this.useAbility('timeWarp');
+        });
+        
+        document.getElementById('shieldBoost').addEventListener('click', () => {
+            this.useAbility('shieldBoost');
+        });
+        
+        document.getElementById('damageBoost').addEventListener('click', () => {
+            this.useAbility('damageBoost');
         });
         
         // Instructions Toggle
@@ -199,6 +234,7 @@ class Game {
     }
     
     selectTower(x, y) {
+        console.log(`Attempting to select tower at: ${x}, ${y}`);
         this.selectedTower = null;
         
         // Gehe durch alle Tower in umgekehrter Reihenfolge (zuletzt gezeichnete zuerst)
@@ -206,14 +242,18 @@ class Game {
             const tower = this.towers[i];
             const dist = Math.sqrt((x - tower.x) ** 2 + (y - tower.y) ** 2);
             
+            console.log(`Checking tower ${i} at (${tower.x}, ${tower.y}), distance: ${dist}, size: ${tower.size}`);
+            
             // Verwende die tatsächliche Tower-Größe für genauere Kollision
-            if (dist <= tower.size + 5) { // +5 für einfachere Auswahl
+            if (dist <= tower.size + 10) { // +10 für einfachere Auswahl
+                console.log(`Tower selected: ${tower.type} at level ${tower.level}`);
                 this.selectedTower = tower;
                 this.showTowerUpgrade(tower);
                 return;
             }
         }
         
+        console.log('No tower selected');
         this.hideTowerUpgrade();
     }
     
@@ -270,6 +310,13 @@ class Game {
     startWave() {
         if (this.waveInProgress) return;
         
+        // Boss Wave Check (jede 5. Welle)
+        this.bossWave = this.wave % 5 === 0;
+        
+        if (this.bossWave) {
+            this.showBossWarning();
+        }
+        
         this.waveInProgress = true;
         this.enemiesSpawned = 0;
         this.gameRunning = true;
@@ -288,9 +335,15 @@ class Game {
             if (this.wave >= 5 && Math.random() < 0.2) enemyType = 'tank';
             if (this.wave >= 7 && Math.random() < 0.1) enemyType = 'boss';
             
+            // Boss Wave: Mehr starke Gegner
+            if (this.bossWave) {
+                if (Math.random() < 0.5) enemyType = 'boss';
+                else if (Math.random() < 0.7) enemyType = 'tank';
+            }
+            
             this.enemies.push(new Enemy(this.path, enemyType, this.wave));
             this.enemiesSpawned++;
-        }, 800);
+        }, this.bossWave ? 600 : 800); // Schnelleres Spawning bei Boss Waves
         
         document.getElementById('startWave').disabled = true;
     }
@@ -298,6 +351,21 @@ class Game {
     togglePause() {
         this.gamePaused = !this.gamePaused;
         document.getElementById('pauseGame').textContent = this.gamePaused ? 'Fortsetzen' : 'Pause';
+    }
+    
+    toggleAutoWave() {
+        this.autoWaveEnabled = !this.autoWaveEnabled;
+        const autoBtn = document.getElementById('autoWave');
+        
+        if (this.autoWaveEnabled) {
+            autoBtn.classList.add('active');
+            autoBtn.innerHTML = '<i class="fas fa-stop"></i><span>Auto Stopp</span>';
+            this.showMessage('Auto-Wellen aktiviert!', 'success');
+        } else {
+            autoBtn.classList.remove('active');
+            autoBtn.innerHTML = '<i class="fas fa-sync"></i><span>Auto Wellen</span>';
+            this.showMessage('Auto-Wellen deaktiviert!', 'info');
+        }
     }
     
     restartGame() {
@@ -312,8 +380,28 @@ class Game {
         this.waveInProgress = false;
         this.selectedTowerType = null;
         this.selectedTower = null;
+        this.autoWaveEnabled = false;
+        this.bossWave = false;
+        this.comboMultiplier = 1;
+        this.comboKills = 0;
+        this.lastKillTime = 0;
+        this.powerUps = [];
+        this.screenShake = 0;
+        
+        // Reset active effects
+        this.activeEffects = {
+            timeWarp: false,
+            shieldBoost: false,
+            damageBoost: false
+        };
         
         document.getElementById('startWave').disabled = false;
+        
+        // Auto-Wave Button zurücksetzen
+        const autoBtn = document.getElementById('autoWave');
+        autoBtn.classList.remove('active');
+        autoBtn.innerHTML = '<i class="fas fa-sync"></i><span>Auto Wellen</span>';
+        
         document.querySelectorAll('.tower-card').forEach(c => c.classList.remove('selected'));
         this.hideTowerUpgrade();
         this.updateUI();
@@ -326,7 +414,7 @@ class Game {
     }
     
     showTowerUpgrade(tower) {
-        console.log('showTowerUpgrade called');
+        console.log('showTowerUpgrade called for tower:', tower.type);
         
         // Schließe Instructions Panel wenn es offen ist
         const instructionsPanel = document.getElementById('instructionsPanel');
@@ -342,6 +430,11 @@ class Game {
         
         const upgradeDiv = document.getElementById('towerUpgrade');
         const upgradeInfo = document.getElementById('upgradeInfo');
+        
+        if (!upgradeDiv || !upgradeInfo) {
+            console.error('Upgrade elements not found!');
+            return;
+        }
         
         upgradeInfo.innerHTML = `
             <div class="tower-upgrade-header">
@@ -371,14 +464,18 @@ class Game {
         `;
         
         // Popup anzeigen
+        upgradeDiv.style.display = 'flex';
         upgradeDiv.classList.add('show');
+        console.log('Upgrade popup should be visible now');
         
-        // Klick außerhalb des Popups schließt es
-        upgradeDiv.addEventListener('click', (e) => {
+        // Klick außerhalb des Popups schließt es (nur einmal hinzufügen)
+        const handleOutsideClick = (e) => {
             if (e.target === upgradeDiv) {
                 this.hideTowerUpgrade();
+                upgradeDiv.removeEventListener('click', handleOutsideClick);
             }
-        });
+        };
+        upgradeDiv.addEventListener('click', handleOutsideClick);
         
         const upgradeBtn = document.getElementById('upgradeBtn');
         const upgradeCost = Math.floor(tower.value * 0.5);
@@ -452,9 +549,11 @@ class Game {
         console.log('hideTowerUpgrade called');
         const upgradeDiv = document.getElementById('towerUpgrade');
         if (upgradeDiv) {
+            upgradeDiv.style.display = 'none';
             upgradeDiv.classList.remove('show');
             console.log('Upgrade popup hidden');
         }
+        this.selectedTower = null;
     }
     
     upgradeTower() {
@@ -517,6 +616,27 @@ class Game {
                     success = true;
                 }
                 break;
+            case 'timeWarp':
+                cost = 80;
+                if (this.money >= cost) {
+                    this.timeWarp();
+                    success = true;
+                }
+                break;
+            case 'shieldBoost':
+                cost = 60;
+                if (this.money >= cost) {
+                    this.shieldBoost();
+                    success = true;
+                }
+                break;
+            case 'damageBoost':
+                cost = 70;
+                if (this.money >= cost) {
+                    this.damageBoost();
+                    success = true;
+                }
+                break;
         }
         
         if (success) {
@@ -560,8 +680,140 @@ class Game {
     goldRush() {
         this.money += 100;
         this.goldEarned += 100;
-        this.showMessage('+100 Gold Rush!');
+        this.showMessage('+100 Gold Rush!', 'success');
         this.checkAchievements();
+    }
+    
+    timeWarp() {
+        this.activeEffects.timeWarp = true;
+        this.showMessage('Time Warp aktiviert! Gegner verlangsamt!', 'info');
+        
+        // Alle Gegner verlangsamen
+        this.enemies.forEach(enemy => {
+            enemy.slowEffect = 0.3;
+            enemy.slowDuration = 300; // 5 Sekunden
+        });
+        
+        // Effekt nach 10 Sekunden beenden
+        setTimeout(() => {
+            this.activeEffects.timeWarp = false;
+        }, 10000);
+    }
+    
+    shieldBoost() {
+        this.activeEffects.shieldBoost = true;
+        this.lives += 5;
+        this.showMessage('+5 Leben! Shield Boost aktiviert!', 'success');
+        this.updateUI();
+        
+        // Temporärer Schutz vor Lebensverlust
+        setTimeout(() => {
+            this.activeEffects.shieldBoost = false;
+        }, 15000);
+    }
+    
+    damageBoost() {
+        this.activeEffects.damageBoost = true;
+        this.showMessage('Damage Boost! Doppelter Schaden für 10 Sekunden!', 'warning');
+        
+        // Effekt nach 10 Sekunden beenden
+        setTimeout(() => {
+            this.activeEffects.damageBoost = false;
+        }, 10000);
+    }
+    
+    showBossWarning() {
+        const warning = document.getElementById('bossWarning');
+        warning.style.display = 'block';
+        
+        setTimeout(() => {
+            warning.style.display = 'none';
+        }, 3000);
+    }
+    
+    updateCombo(killValue) {
+        const currentTime = Date.now();
+        
+        // Combo läuft ab nach 3 Sekunden ohne Kill
+        if (currentTime - this.lastKillTime > 3000) {
+            this.comboKills = 0;
+            this.comboMultiplier = 1;
+        }
+        
+        this.comboKills++;
+        this.lastKillTime = currentTime;
+        
+        // Combo Multiplier erhöhen
+        if (this.comboKills >= 5) this.comboMultiplier = 2;
+        if (this.comboKills >= 10) this.comboMultiplier = 3;
+        if (this.comboKills >= 20) this.comboMultiplier = 4;
+        if (this.comboKills >= 30) this.comboMultiplier = 5;
+        
+        // Bonus Gold durch Combo
+        const bonusGold = killValue * (this.comboMultiplier - 1);
+        if (bonusGold > 0) {
+            this.money += bonusGold;
+            this.goldEarned += bonusGold;
+        }
+        
+        // Combo Display aktualisieren
+        this.updateComboDisplay();
+        
+        // Power-Up Chance bei hoher Combo
+        if (this.comboKills >= 15 && Math.random() < 0.3) {
+            this.spawnPowerUp();
+        }
+    }
+    
+    updateComboDisplay() {
+        const comboDisplay = document.getElementById('comboDisplay');
+        const comboValue = document.getElementById('comboValue');
+        const comboKillsSpan = document.getElementById('comboKills');
+        
+        if (this.comboKills >= 3) {
+            comboDisplay.style.display = 'block';
+            comboValue.textContent = this.comboMultiplier;
+            comboKillsSpan.textContent = this.comboKills;
+        } else {
+            comboDisplay.style.display = 'none';
+        }
+    }
+    
+    spawnPowerUp() {
+        const powerUpNotification = document.getElementById('powerUpNotification');
+        powerUpNotification.style.display = 'block';
+        
+        // Zufälliger Power-Up Effekt
+        const powerUpTypes = ['money', 'ability_reset', 'temp_boost'];
+        const powerUpType = powerUpTypes[Math.floor(Math.random() * powerUpTypes.length)];
+        
+        switch(powerUpType) {
+            case 'money':
+                this.money += 50;
+                this.goldEarned += 50;
+                powerUpNotification.querySelector('.power-up-text').textContent = '+50 Bonus Gold!';
+                break;
+            case 'ability_reset':
+                // Alle Abilities zurücksetzen
+                Object.keys(this.specialAbilities).forEach(key => {
+                    this.specialAbilities[key].cooldown = 0;
+                });
+                powerUpNotification.querySelector('.power-up-text').textContent = 'Alle Abilities zurückgesetzt!';
+                break;
+            case 'temp_boost':
+                this.activeEffects.damageBoost = true;
+                setTimeout(() => {
+                    this.activeEffects.damageBoost = false;
+                }, 5000);
+                powerUpNotification.querySelector('.power-up-text').textContent = 'Temp Damage Boost!';
+                break;
+        }
+        
+        setTimeout(() => {
+            powerUpNotification.style.display = 'none';
+        }, 3000);
+        
+        this.updateUI();
     }
     
     createExplosion(x, y, radius, damage) {
@@ -579,7 +831,11 @@ class Game {
             { id: 'wave10', condition: () => this.wave >= 10, message: 'Welle 10 erreicht!' },
             { id: 'wave20', condition: () => this.wave >= 20, message: 'Welle 20 erreicht!' },
             { id: 'goldCollector', condition: () => this.goldEarned >= 500, message: '500 Gold gesammelt!' },
-            { id: 'richPlayer', condition: () => this.money >= 1000, message: 'Millionär!' }
+            { id: 'richPlayer', condition: () => this.money >= 1000, message: 'Millionär!' },
+            { id: 'firstBoss', condition: () => this.wave >= 5, message: 'Erste Boss-Welle überstanden!' },
+            { id: 'comboMaster', condition: () => this.comboMultiplier >= 3, message: 'Combo Master! x3 Multiplier!' },
+            { id: 'powerUpCollector', condition: () => this.comboKills >= 15, message: 'Power-Up Sammler!' },
+            { id: 'abilityMaster', condition: () => this.totalKills >= 50, message: 'Ability Master!' }
         ];
         
         achievements.forEach(achievement => {
@@ -644,9 +900,15 @@ class Game {
                     this.gameOver();
                 }
             } else if (enemy.health <= 0) {
-                this.money += enemy.reward;
-                this.goldEarned += enemy.reward;
-                this.score += enemy.points;
+                const baseReward = enemy.reward;
+                
+                // Combo-System anwenden
+                this.updateCombo(baseReward);
+                
+                // Geld mit Combo-Bonus
+                this.money += baseReward;
+                this.goldEarned += baseReward;
+                this.score += enemy.points * this.comboMultiplier;
                 this.totalKills++;
                 this.enemies.splice(i, 1);
                 this.updateUI();
@@ -654,6 +916,12 @@ class Game {
                 
                 // Partikel-Effekt beim Tod
                 this.particles.push(new Particle(enemy.x, enemy.y, 'death'));
+                
+                // Screen Shake bei Boss Kill
+                if (enemy.type === 'boss') {
+                    this.screenShake = 10;
+                    this.showMessage(`Boss besiegt! +${baseReward * this.comboMultiplier} Punkte!`, 'success');
+                }
             }
         }
         
@@ -696,10 +964,47 @@ class Game {
             this.updateUI();
             this.checkAchievements();
             document.getElementById('startWave').disabled = false;
+            
+            // Auto-Wave: Automatisch nächste Welle starten
+            if (this.autoWaveEnabled && !this.gamePaused) {
+                const startBtn = document.getElementById('startWave');
+                startBtn.innerHTML = '<i class="fas fa-clock"></i><span>Auto in 3s...</span>';
+                startBtn.disabled = true;
+                
+                let countdown = 3;
+                const countdownInterval = setInterval(() => {
+                    countdown--;
+                    if (countdown > 0 && this.autoWaveEnabled) {
+                        startBtn.innerHTML = `<i class="fas fa-clock"></i><span>Auto in ${countdown}s...</span>`;
+                    } else {
+                        clearInterval(countdownInterval);
+                        startBtn.innerHTML = '<i class="fas fa-play"></i><span>Nächste Welle</span>';
+                    }
+                }, 1000);
+                
+                setTimeout(() => {
+                    if (this.autoWaveEnabled && !this.waveInProgress && !this.gamePaused) {
+                        this.startWave();
+                    } else {
+                        startBtn.innerHTML = '<i class="fas fa-play"></i><span>Nächste Welle</span>';
+                        startBtn.disabled = false;
+                    }
+                }, this.autoWaveDelay);
+            }
         }
     }
     
     draw() {
+        // Screen Shake Effekt
+        if (this.screenShake > 0) {
+            const shakeX = (Math.random() - 0.5) * this.screenShake;
+            const shakeY = (Math.random() - 0.5) * this.screenShake;
+            this.ctx.save();
+            this.ctx.translate(shakeX, shakeY);
+            this.screenShake *= 0.9; // Abklingen lassen
+            if (this.screenShake < 0.1) this.screenShake = 0;
+        }
+        
         // Canvas leeren
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         
@@ -742,6 +1047,11 @@ class Game {
         
         // Debug: Mausposition anzeigen (optional)
         this.drawMouseDebug();
+        
+        // Screen Shake zurücksetzen
+        if (this.screenShake > 0) {
+            this.ctx.restore();
+        }
     }
     
     drawPath() {
@@ -845,27 +1155,66 @@ class Game {
         });
     }
     
-    showMessage(message) {
+    showMessage(message, type = 'error') {
         // Temporäre Nachricht anzeigen
         const messageDiv = document.createElement('div');
         messageDiv.textContent = message;
+        
+        let backgroundColor;
+        switch(type) {
+            case 'success':
+                backgroundColor = 'rgba(16, 185, 129, 0.9)'; // Grün
+                break;
+            case 'info':
+                backgroundColor = 'rgba(59, 130, 246, 0.9)'; // Blau
+                break;
+            case 'warning':
+                backgroundColor = 'rgba(245, 158, 11, 0.9)'; // Orange
+                break;
+            default:
+                backgroundColor = 'rgba(239, 68, 68, 0.9)'; // Rot
+        }
+        
         messageDiv.style.cssText = `
             position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background: rgba(255, 0, 0, 0.9);
+            background: ${backgroundColor};
             color: white;
-            padding: 10px 20px;
-            border-radius: 5px;
+            padding: 12px 24px;
+            border-radius: 8px;
             z-index: 1000;
             font-weight: bold;
+            font-size: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            animation: messageSlideIn 0.3s ease-out;
         `;
+        
+        // Animation CSS hinzufügen falls noch nicht vorhanden
+        if (!document.getElementById('messageAnimation')) {
+            const style = document.createElement('style');
+            style.id = 'messageAnimation';
+            style.textContent = `
+                @keyframes messageSlideIn {
+                    from {
+                        opacity: 0;
+                        transform: translate(-50%, -50%) scale(0.8);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translate(-50%, -50%) scale(1);
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
         
         document.body.appendChild(messageDiv);
         
         setTimeout(() => {
-            messageDiv.remove();
+            messageDiv.style.animation = 'messageSlideIn 0.3s ease-out reverse';
+            setTimeout(() => messageDiv.remove(), 300);
         }, 2000);
     }
     
@@ -1225,7 +1574,13 @@ class Projectile {
             effects.stun = this.tower.stun;
         }
         
-        this.target.takeDamage(this.tower.damage, effects);
+        // Damage Boost berücksichtigen
+        let finalDamage = this.tower.damage;
+        if (game.activeEffects.damageBoost) {
+            finalDamage *= 2;
+        }
+        
+        this.target.takeDamage(finalDamage, effects);
         
         // Splash-Schaden (Fire Tower)
         if (this.tower.type === 'fire' && this.tower.splash) {
@@ -1233,7 +1588,8 @@ class Projectile {
                 if (enemy !== this.target) {
                     const distance = Math.sqrt((enemy.x - this.target.x) ** 2 + (enemy.y - this.target.y) ** 2);
                     if (distance <= this.tower.splash) {
-                        enemy.takeDamage(this.tower.damage * 0.5);
+                        let splashDamage = finalDamage * 0.5;
+                        enemy.takeDamage(splashDamage);
                     }
                 }
             });
