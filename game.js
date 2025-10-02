@@ -1,11 +1,10 @@
 class Game {
     constructor() {
-        this.canvas = document.getElementById('gameCanvas');
-        this.ctx = this.canvas.getContext('2d');
+        // Warten bis Canvas verfügbar ist
+        this.initializeCanvas();
         
-        // Canvas-Größe korrekt setzen
-        this.canvas.width = 800;
-        this.canvas.height = 600;
+        // Load settings first
+        this.settings = this.loadSettings();
         
         this.towers = [];
         this.enemies = [];
@@ -16,7 +15,7 @@ class Game {
         this.lives = 20;
         this.score = 0;
         this.wave = 1;
-        this.gameRunning = false;
+        this.gameRunning = true; // Spiel startet aktiv
         this.gamePaused = false;
         this.waveInProgress = false;
         this.enemiesSpawned = 0;
@@ -24,6 +23,10 @@ class Game {
         this.mouseX = 0;
         this.mouseY = 0;
         this.gameSpeed = 1;
+        this.lastFrameTime = 0;
+        this.fpsCounter = 0;
+        this.lastFpsUpdate = 0;
+        this.currentFps = 0;
         this.particles = [];
         this.achievements = [];
         this.totalKills = 0;
@@ -31,6 +34,8 @@ class Game {
         this.goldEarned = 0;
         this.autoWaveEnabled = false;
         this.autoWaveDelay = 3000; // 3 Sekunden Verzögerung
+        this.autoWaveTimer = null;
+        this.autoWaveInterval = null;
         this.bossWave = false;
         this.comboMultiplier = 1;
         this.comboKills = 0;
@@ -52,23 +57,128 @@ class Game {
             damageBoost: false
         };
         
-        // Spielfeld-Pfad
+        // Spielfeld-Pfad (skaliert für 1000x750 Canvas)
         this.path = [
-            {x: 0, y: 300},
-            {x: 150, y: 300},
-            {x: 150, y: 150},
-            {x: 350, y: 150},
-            {x: 350, y: 450},
-            {x: 550, y: 450},
-            {x: 550, y: 250},
-            {x: 700, y: 250},
-            {x: 700, y: 100},
-            {x: 800, y: 100}
+            {x: 0, y: 375},
+            {x: 187, y: 375},
+            {x: 187, y: 187},
+            {x: 437, y: 187},
+            {x: 437, y: 562},
+            {x: 687, y: 562},
+            {x: 687, y: 312},
+            {x: 875, y: 312},
+            {x: 875, y: 125},
+            {x: 1000, y: 125}
         ];
         
         this.setupEventListeners();
+        this.setupMenuEventListeners();
         this.gameLoop();
         this.drawPath();
+        this.applySettings();
+    }
+
+    // Settings Management
+    loadSettings() {
+        const defaultSettings = {
+            performance: {
+                fpsLimit: 60,
+                particleQuality: 'medium'
+            },
+            audio: {
+                masterVolume: 100,
+                sfxVolume: 80,
+                musicVolume: 60
+            },
+            graphics: {
+                shadows: true,
+                animations: true,
+                backgroundEffects: true
+            },
+            gameplay: {
+                autoSave: true,
+                showFPS: false,
+                pauseOnFocusLoss: true,
+                confirmSell: true
+            },
+            controls: {
+                quickBuild: false,
+                rightClickSell: false
+            }
+        };
+
+        const saved = localStorage.getItem('rushRoyalSettings');
+        return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
+    }
+
+    saveSettingsData() {
+        localStorage.setItem('rushRoyalSettings', JSON.stringify(this.settings));
+    }
+
+    applySettings() {
+        // Apply FPS settings
+        if (this.settings.performance.fpsLimit > 0) {
+            this.targetFrameTime = 1000 / this.settings.performance.fpsLimit;
+        } else {
+            this.targetFrameTime = 0;
+        }
+
+        // Apply FPS display
+        this.updateFPSDisplay();
+
+        // Apply other settings as needed
+        this.updateVolumeDisplays();
+    }
+
+    updateFPSDisplay() {
+        let fpsDisplay = document.getElementById('fpsDisplay');
+        if (this.settings.gameplay.showFPS && !fpsDisplay) {
+            // Create FPS display
+            fpsDisplay = document.createElement('div');
+            fpsDisplay.id = 'fpsDisplay';
+            fpsDisplay.style.cssText = `
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                background: rgba(0,0,0,0.8);
+                color: white;
+                padding: 5px 10px;
+                border-radius: 5px;
+                font-family: monospace;
+                font-size: 14px;
+                z-index: 1000;
+            `;
+            document.body.appendChild(fpsDisplay);
+        } else if (!this.settings.gameplay.showFPS && fpsDisplay) {
+            fpsDisplay.remove();
+        }
+    }
+
+    updateVolumeDisplays() {
+        // Update volume sliders and displays when settings modal opens
+        const volumeSliders = ['masterVolume', 'sfxVolume', 'musicVolume'];
+        volumeSliders.forEach(id => {
+            const slider = document.getElementById(id);
+            const display = slider?.nextElementSibling;
+            if (slider && display) {
+                const value = this.settings.audio[id];
+                slider.value = value;
+                display.textContent = value + '%';
+            }
+        });
+    }
+    
+    initializeCanvas() {
+        this.canvas = document.getElementById('gameCanvas');
+        if (this.canvas) {
+            this.ctx = this.canvas.getContext('2d');
+            // Canvas-Größe korrekt setzen (größer für bessere Sichtbarkeit)
+            this.canvas.width = 1000;
+            this.canvas.height = 750;
+        } else {
+            // Fallback: Canvas wird später initialisiert wenn Spiel gestartet wird
+            setTimeout(() => this.initializeCanvas(), 100);
+        }
     }
     
     setupEventListeners() {
@@ -319,38 +429,84 @@ class Game {
         
         this.waveInProgress = true;
         this.enemiesSpawned = 0;
-        this.gameRunning = true;
         
-        const enemiesThisWave = this.enemiesPerWave + Math.floor(this.wave / 3);
+        // Progressive Skalierung: Mehr Feinde pro Welle
+        const enemiesThisWave = this.enemiesPerWave + Math.floor(this.wave * 1.5) + Math.floor(this.wave / 2);
         
-        const spawnInterval = setInterval(() => {
+        // Spawn-Intervall wird mit jeder Welle schneller
+        const baseSpawnInterval = this.bossWave ? 500 : 700;
+        const spawnInterval = Math.max(200, baseSpawnInterval - (this.wave * 15));
+        
+        const spawner = setInterval(() => {
             if (this.enemiesSpawned >= enemiesThisWave) {
-                clearInterval(spawnInterval);
+                clearInterval(spawner);
                 return;
             }
             
-            // Verschiedene Gegnertypen je nach Welle
-            let enemyType = 'basic';
-            if (this.wave >= 3 && Math.random() < 0.3) enemyType = 'fast';
-            if (this.wave >= 5 && Math.random() < 0.2) enemyType = 'tank';
-            if (this.wave >= 7 && Math.random() < 0.1) enemyType = 'boss';
-            
-            // Boss Wave: Mehr starke Gegner
-            if (this.bossWave) {
-                if (Math.random() < 0.5) enemyType = 'boss';
-                else if (Math.random() < 0.7) enemyType = 'tank';
-            }
+            // Progressive Gegnertyp-Wahrscheinlichkeiten basierend auf Welle
+            let enemyType = this.calculateEnemyType();
             
             this.enemies.push(new Enemy(this.path, enemyType, this.wave));
             this.enemiesSpawned++;
-        }, this.bossWave ? 600 : 800); // Schnelleres Spawning bei Boss Waves
+        }, spawnInterval);
         
         document.getElementById('startWave').disabled = true;
     }
     
+    calculateEnemyType() {
+        // Boss Wave: Deutlich mehr starke Gegner
+        if (this.bossWave) {
+            const rand = Math.random();
+            if (rand < 0.6) return 'boss';
+            if (rand < 0.85) return 'tank';
+            if (rand < 0.95) return 'fast';
+            return 'basic';
+        }
+        
+        // Progressive Wahrscheinlichkeiten basierend auf Welle
+        const waveMultiplier = Math.min(this.wave / 10, 2); // Max 2x Multiplier bei Welle 20+
+        
+        const fastChance = Math.min(0.15 + (this.wave * 0.03), 0.5); // Startet bei 15%, max 50%
+        const tankChance = Math.max(0, Math.min(0.05 + (this.wave * 0.025), 0.35)); // Startet bei Welle 1 mit 5%, max 35%
+        const bossChance = Math.max(0, Math.min((this.wave - 4) * 0.015, 0.2)); // Startet bei Welle 5, max 20%
+        
+        const rand = Math.random();
+        
+        if (this.wave >= 5 && rand < bossChance) return 'boss';
+        if (this.wave >= 2 && rand < bossChance + tankChance) return 'tank';
+        if (this.wave >= 2 && rand < bossChance + tankChance + fastChance) return 'fast';
+        
+        return 'basic';
+    }
+    
     togglePause() {
         this.gamePaused = !this.gamePaused;
-        document.getElementById('pauseGame').textContent = this.gamePaused ? 'Fortsetzen' : 'Pause';
+        const pauseBtn = document.getElementById('pauseGame');
+        
+        if (this.gamePaused) {
+            pauseBtn.textContent = 'Fortsetzen';
+            pauseBtn.classList.add('paused');
+            this.showMessage('Spiel pausiert', 'info');
+            
+            // Auto-Wave Timer stoppen bei Pause
+            if (this.autoWaveTimer) {
+                clearTimeout(this.autoWaveTimer);
+                this.autoWaveTimer = null;
+            }
+            if (this.autoWaveInterval) {
+                clearInterval(this.autoWaveInterval);
+                this.autoWaveInterval = null;
+            }
+        } else {
+            pauseBtn.textContent = 'Pause';
+            pauseBtn.classList.remove('paused');
+            this.showMessage('Spiel fortgesetzt', 'success');
+            
+            // Auto-Wave Timer neu starten falls aktiviert und keine Welle läuft
+            if (this.autoWaveEnabled && !this.waveInProgress) {
+                this.startAutoWaveCountdown();
+            }
+        }
     }
     
     toggleAutoWave() {
@@ -376,11 +532,13 @@ class Game {
         this.lives = 20;
         this.score = 0;
         this.wave = 1;
-        this.gameRunning = false;
+        this.gameRunning = true; // Spiel ist aktiv nach Neustart
         this.waveInProgress = false;
         this.selectedTowerType = null;
         this.selectedTower = null;
         this.autoWaveEnabled = false;
+        this.autoWaveTimer = null;
+        this.autoWaveInterval = null;
         this.bossWave = false;
         this.comboMultiplier = 1;
         this.comboKills = 0;
@@ -846,6 +1004,213 @@ class Game {
         });
     }
     
+    setupMenuEventListeners() {
+        // Hauptmenü Event Listeners
+        const startGameBtn = document.getElementById('startGame');
+        const howToPlayBtn = document.getElementById('howToPlay');
+        const settingsBtn = document.getElementById('settings');
+        const statisticsBtn = document.getElementById('statistics');
+        
+        if (startGameBtn) {
+            startGameBtn.addEventListener('click', () => this.startGameFromMenu());
+        }
+        
+        if (howToPlayBtn) {
+            howToPlayBtn.addEventListener('click', () => this.showHowToPlay());
+        }
+        
+        if (settingsBtn) {
+            settingsBtn.addEventListener('click', () => this.showSettings());
+        }
+
+        if (statisticsBtn) {
+            statisticsBtn.addEventListener('click', () => this.showStatistics());
+        }
+
+        // Settings Modal Event Listeners
+        this.setupSettingsEventListeners();        // Game Over Screen Event Listeners
+        const playAgainBtn = document.getElementById('playAgain');
+        const backToMenuBtn = document.getElementById('backToMenu');
+        
+        if (playAgainBtn) {
+            playAgainBtn.addEventListener('click', () => this.restartGameFromGameOver());
+        }
+        
+        if (backToMenuBtn) {
+            backToMenuBtn.addEventListener('click', () => this.showMainMenu());
+        }
+    }
+    
+    startGameFromMenu() {
+        const mainMenu = document.getElementById('mainMenu');
+        const gameContainer = document.getElementById('gameContainer');
+        
+        if (mainMenu) mainMenu.style.display = 'none';
+        if (gameContainer) gameContainer.style.display = 'block';
+        
+        // Canvas initialisieren falls nicht bereits geschehen
+        if (!this.canvas) {
+            this.initializeCanvas();
+        }
+        
+        // Spiel zurücksetzen und starten
+        this.restartGame();
+        this.gamePaused = false;
+    }
+    
+    showMainMenu() {
+        const mainMenu = document.getElementById('mainMenu');
+        const gameContainer = document.getElementById('gameContainer');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        
+        if (mainMenu) mainMenu.style.display = 'flex';
+        if (gameContainer) gameContainer.style.display = 'none';
+        if (gameOverScreen) gameOverScreen.style.display = 'none';
+        
+        // Spiel pausieren
+        this.gamePaused = true;
+    }
+
+    setupSettingsEventListeners() {
+        // Volume sliders
+        const volumeSliders = ['masterVolume', 'sfxVolume', 'musicVolume'];
+        volumeSliders.forEach(id => {
+            const slider = document.getElementById(id);
+            if (slider) {
+                slider.addEventListener('input', (e) => {
+                    const value = parseInt(e.target.value);
+                    const volumeType = id; // masterVolume, sfxVolume, musicVolume
+                    this.settings.audio[volumeType] = value;
+                    
+                    // Update display
+                    const display = e.target.nextElementSibling;
+                    if (display) display.textContent = value + '%';
+                });
+            }
+        });
+
+        // Checkboxes
+        const checkboxSettings = [
+            { id: 'shadows', category: 'graphics' },
+            { id: 'animations', category: 'graphics' },
+            { id: 'backgroundEffects', category: 'graphics' },
+            { id: 'autoSave', category: 'gameplay' },
+            { id: 'showFPS', category: 'gameplay' },
+            { id: 'pauseOnFocusLoss', category: 'gameplay' },
+            { id: 'confirmSell', category: 'gameplay' },
+            { id: 'quickBuild', category: 'controls' },
+            { id: 'rightClickSell', category: 'controls' }
+        ];
+
+        checkboxSettings.forEach(setting => {
+            const checkbox = document.getElementById(setting.id);
+            if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                    this.settings[setting.category][setting.id] = e.target.checked;
+                    if (setting.id === 'showFPS') {
+                        this.updateFPSDisplay();
+                    }
+                });
+            }
+        });
+
+        // Select dropdowns
+        const fpsSelect = document.getElementById('fpsLimit');
+        if (fpsSelect) {
+            fpsSelect.addEventListener('change', (e) => {
+                this.settings.performance.fpsLimit = parseInt(e.target.value);
+                this.applySettings();
+            });
+        }
+
+        const particleSelect = document.getElementById('particleQuality');
+        if (particleSelect) {
+            particleSelect.addEventListener('change', (e) => {
+                this.settings.performance.particleQuality = e.target.value;
+            });
+        }
+    }
+
+    showSettings() {
+        const modal = document.getElementById('settingsModal');
+        if (modal) {
+            // Load current settings into UI
+            this.loadSettingsIntoUI();
+            modal.style.display = 'flex';
+        }
+    }
+
+    loadSettingsIntoUI() {
+        // Load FPS setting
+        const fpsSelect = document.getElementById('fpsLimit');
+        if (fpsSelect) {
+            fpsSelect.value = this.settings.performance.fpsLimit;
+        }
+
+        // Load particle quality
+        const particleSelect = document.getElementById('particleQuality');
+        if (particleSelect) {
+            particleSelect.value = this.settings.performance.particleQuality;
+        }
+
+        // Load volume settings
+        this.updateVolumeDisplays();
+
+        // Load checkbox settings
+        const checkboxes = [
+            'shadows', 'animations', 'backgroundEffects',
+            'autoSave', 'showFPS', 'pauseOnFocusLoss', 'confirmSell',
+            'quickBuild', 'rightClickSell'
+        ];
+
+        checkboxes.forEach(id => {
+            const checkbox = document.getElementById(id);
+            if (checkbox) {
+                let value = false;
+                if (this.settings.graphics[id] !== undefined) value = this.settings.graphics[id];
+                else if (this.settings.gameplay[id] !== undefined) value = this.settings.gameplay[id];
+                else if (this.settings.controls[id] !== undefined) value = this.settings.controls[id];
+                
+                checkbox.checked = value;
+            }
+        });
+    }
+    
+    showHowToPlay() {
+        const modal = document.getElementById('howToPlayModal');
+        if (modal) {
+            modal.style.display = 'flex';
+        }
+    }
+    
+    showStatistics() {
+        const stats = this.getGameStatistics();
+        this.showMessage(`Statistiken: ${stats.totalGames} Spiele gespielt, Höchste Welle: ${stats.highestWave}`, 'info');
+    }
+    
+    getGameStatistics() {
+        // Grundlegende Statistiken (könnten in localStorage gespeichert werden)
+        return {
+            totalGames: localStorage.getItem('rushRoyal_totalGames') || 0,
+            highestWave: localStorage.getItem('rushRoyal_highestWave') || 1,
+            totalKills: localStorage.getItem('rushRoyal_totalKills') || 0,
+            totalGold: localStorage.getItem('rushRoyal_totalGold') || 0
+        };
+    }
+    
+    updateStatistics() {
+        // Statistiken in localStorage aktualisieren
+        const currentGames = parseInt(localStorage.getItem('rushRoyal_totalGames') || '0');
+        const currentHighest = parseInt(localStorage.getItem('rushRoyal_highestWave') || '1');
+        const currentKills = parseInt(localStorage.getItem('rushRoyal_totalKills') || '0');
+        const currentGold = parseInt(localStorage.getItem('rushRoyal_totalGold') || '0');
+        
+        localStorage.setItem('rushRoyal_totalGames', (currentGames + 1).toString());
+        localStorage.setItem('rushRoyal_highestWave', Math.max(currentHighest, this.wave).toString());
+        localStorage.setItem('rushRoyal_totalKills', (currentKills + this.totalKills).toString());
+        localStorage.setItem('rushRoyal_totalGold', (currentGold + this.goldEarned).toString());
+    }
+    
     showAchievement(message) {
         const achievementEl = document.getElementById('currentAchievement');
         const textEl = achievementEl.querySelector('.achievement-text');
@@ -863,16 +1228,40 @@ class Game {
         }, 3000);
     }
     
-    gameLoop() {
+    gameLoop(currentTime = 0) {
+        // FPS limiting
+        if (this.targetFrameTime && currentTime - this.lastFrameTime < this.targetFrameTime) {
+            requestAnimationFrame((time) => this.gameLoop(time));
+            return;
+        }
+
+        // FPS calculation
+        if (this.settings.gameplay.showFPS) {
+            this.fpsCounter++;
+            if (currentTime - this.lastFpsUpdate >= 1000) {
+                this.currentFps = this.fpsCounter;
+                this.fpsCounter = 0;
+                this.lastFpsUpdate = currentTime;
+                
+                const fpsDisplay = document.getElementById('fpsDisplay');
+                if (fpsDisplay) {
+                    fpsDisplay.textContent = `FPS: ${this.currentFps}`;
+                }
+            }
+        }
+
+        this.lastFrameTime = currentTime;
+
         if (!this.gamePaused) {
             this.update();
         }
         this.draw();
-        requestAnimationFrame(() => this.gameLoop());
+        requestAnimationFrame((time) => this.gameLoop(time));
     }
     
     update() {
-        if (!this.gameRunning) return;
+        // Das Spiel sollte immer laufen, außer bei Game Over
+        if (this.lives <= 0) return;
         
         // Cooldowns updaten
         Object.values(this.specialAbilities).forEach(ability => {
@@ -882,7 +1271,7 @@ class Game {
         // Game Speed anwenden
         const speedMultiplier = this.gameSpeed;
         
-        // Gegner updaten
+        // Gegner updaten (nur wenn welche vorhanden)
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const enemy = this.enemies[i];
             
@@ -955,42 +1344,50 @@ class Game {
             }
         }
         
-        // Überprüfen ob Welle beendet
-        if (this.waveInProgress && this.enemies.length === 0 && this.enemiesSpawned >= this.enemiesPerWave + Math.floor(this.wave / 3)) {
-            this.waveInProgress = false;
-            this.wave++;
-            this.money += 25; // Bonus für beendete Welle
-            this.goldEarned += 25;
-            this.updateUI();
-            this.checkAchievements();
-            document.getElementById('startWave').disabled = false;
-            
-            // Auto-Wave: Automatisch nächste Welle starten
-            if (this.autoWaveEnabled && !this.gamePaused) {
-                const startBtn = document.getElementById('startWave');
-                startBtn.innerHTML = '<i class="fas fa-clock"></i><span>Auto in 3s...</span>';
-                startBtn.disabled = true;
-                
-                let countdown = 3;
-                const countdownInterval = setInterval(() => {
-                    countdown--;
-                    if (countdown > 0 && this.autoWaveEnabled) {
-                        startBtn.innerHTML = `<i class="fas fa-clock"></i><span>Auto in ${countdown}s...</span>`;
-                    } else {
-                        clearInterval(countdownInterval);
-                        startBtn.innerHTML = '<i class="fas fa-play"></i><span>Nächste Welle</span>';
-                    }
-                }, 1000);
-                
-                setTimeout(() => {
-                    if (this.autoWaveEnabled && !this.waveInProgress && !this.gamePaused) {
-                        this.startWave();
-                    } else {
-                        startBtn.innerHTML = '<i class="fas fa-play"></i><span>Nächste Welle</span>';
-                        startBtn.disabled = false;
-                    }
-                }, this.autoWaveDelay);
-            }
+        // Überprüfen ob Welle beendet - Verwende die gleiche Berechnung wie in startWave
+        const expectedEnemies = this.enemiesPerWave + Math.floor(this.wave * 1.5) + Math.floor(this.wave / 2);
+        if (this.waveInProgress && this.enemies.length === 0 && this.enemiesSpawned >= expectedEnemies) {
+            this.completeWave();
+        }
+    }
+    
+    completeWave() {
+        this.waveInProgress = false;
+        this.wave++;
+        
+        // Progressive Wellen-Belohnung
+        const waveBonus = 25 + Math.floor(this.wave * 2);
+        this.money += waveBonus;
+        this.goldEarned += waveBonus;
+        
+        // Zeige Wellen-Abschluss-Information
+        this.showWaveCompleteMessage();
+        
+        this.updateUI();
+        this.checkAchievements();
+        document.getElementById('startWave').disabled = false;
+        
+        // Auto-Wave: Automatisch nächste Welle starten
+        if (this.autoWaveEnabled && !this.gamePaused) {
+            this.startAutoWaveCountdown();
+        }
+    }
+    
+    showWaveCompleteMessage() {
+        const nextWaveEnemies = this.enemiesPerWave + Math.floor((this.wave + 1) * 1.5) + Math.floor((this.wave + 1) / 2);
+        const isBossWave = (this.wave + 1) % 5 === 0;
+        
+        let message = `Welle ${this.wave - 1} abgeschlossen! `;
+        
+        if (isBossWave) {
+            message += `⚠️ Nächste Welle ist eine BOSS-WELLE mit ${nextWaveEnemies} Feinden!`;
+            this.showMessage(message, 'warning');
+        } else if (this.wave >= 10) {
+            message += `💪 Nächste Welle: ${nextWaveEnemies} verstärkte Feinde (${this.wave * 15}% stärker)`;
+            this.showMessage(message, 'success');
+        } else {
+            message += `➡️ Nächste Welle: ${nextWaveEnemies} Feinde`;
+            this.showMessage(message, 'success');
         }
     }
     
@@ -1055,6 +1452,8 @@ class Game {
     }
     
     drawPath() {
+        if (!this.ctx) return;
+        
         this.ctx.strokeStyle = '#8B4513';
         this.ctx.lineWidth = 30;
         this.ctx.lineCap = 'round';
@@ -1121,12 +1520,32 @@ class Game {
     }
     
     updateUI() {
-        document.getElementById('lives').textContent = this.lives;
-        document.getElementById('money').textContent = this.money;
-        document.getElementById('score').textContent = this.score;
-        document.getElementById('wave').textContent = this.wave;
-        document.getElementById('gameSpeed').textContent = `${this.gameSpeed}x`;
-        document.getElementById('currentWave').textContent = this.wave;
+        // Sicherstellen, dass das DOM verfügbar ist
+        if (!document.body) {
+            return;
+        }
+        
+        // Sichere DOM-Element-Updates mit Existenz-Prüfung
+        const updateElement = (id, value) => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = value;
+            }
+        };
+        
+        updateElement('lives', this.lives);
+        updateElement('money', this.money);
+        updateElement('score', this.score);
+        updateElement('wave', this.wave);
+        updateElement('gameSpeed', `${this.gameSpeed}x`);
+        updateElement('currentWave', this.wave);
+        
+        // Nächste Welle Vorschau (mit Fehlerbehandlung)
+        try {
+            this.updateWavePreview();
+        } catch (error) {
+            console.warn('Error updating wave preview:', error);
+        }
         
         // Tower-Cards updaten
         document.querySelectorAll('.tower-card').forEach(card => {
@@ -1142,17 +1561,21 @@ class Game {
             }
         });
         
-        // Ability-Buttons updaten
-        Object.keys(this.specialAbilities).forEach(abilityType => {
-            const ability = this.specialAbilities[abilityType];
-            const btn = document.getElementById(abilityType);
-            if (btn) {
-                btn.disabled = ability.cooldown > 0;
-                if (ability.cooldown > 0) {
-                    btn.textContent = btn.textContent.replace(/\d+/, Math.ceil(ability.cooldown / 60));
+        // Ability-Buttons updaten (mit Fehlerbehandlung)
+        try {
+            Object.keys(this.specialAbilities).forEach(abilityType => {
+                const ability = this.specialAbilities[abilityType];
+                const btn = document.getElementById(abilityType);
+                if (btn) {
+                    btn.disabled = ability.cooldown > 0;
+                    if (ability.cooldown > 0) {
+                        btn.textContent = btn.textContent.replace(/\d+/, Math.ceil(ability.cooldown / 60));
+                    }
                 }
-            }
-        });
+            });
+        } catch (error) {
+            console.warn('Error updating ability buttons:', error);
+        }
     }
     
     showMessage(message, type = 'error') {
@@ -1218,23 +1641,177 @@ class Game {
         }, 2000);
     }
     
+    startAutoWaveCountdown() {
+        // Alle vorherigen Auto-Wave Timer löschen
+        if (this.autoWaveTimer) {
+            clearTimeout(this.autoWaveTimer);
+        }
+        if (this.autoWaveInterval) {
+            clearInterval(this.autoWaveInterval);
+        }
+        
+        const startBtn = document.getElementById('startWave');
+        startBtn.innerHTML = '<i class="fas fa-clock"></i><span>Auto in 3s...</span>';
+        startBtn.disabled = true;
+        
+        let countdown = 3;
+        this.autoWaveInterval = setInterval(() => {
+            if (this.gamePaused || !this.autoWaveEnabled) {
+                clearInterval(this.autoWaveInterval);
+                startBtn.innerHTML = '<i class="fas fa-play"></i><span>Nächste Welle</span>';
+                startBtn.disabled = false;
+                return;
+            }
+            
+            countdown--;
+            if (countdown > 0) {
+                startBtn.innerHTML = `<i class="fas fa-clock"></i><span>Auto in ${countdown}s...</span>`;
+            } else {
+                clearInterval(this.autoWaveInterval);
+                startBtn.innerHTML = '<i class="fas fa-play"></i><span>Nächste Welle</span>';
+            }
+        }, 1000);
+        
+        this.autoWaveTimer = setTimeout(() => {
+            if (this.autoWaveEnabled && !this.waveInProgress && !this.gamePaused) {
+                this.startWave();
+            } else {
+                startBtn.innerHTML = '<i class="fas fa-play"></i><span>Nächste Welle</span>';
+                startBtn.disabled = false;
+            }
+        }, 3000);
+    }
+    
+    updateWavePreview() {
+        const nextWave = this.wave + 1;
+        const nextWaveEnemies = this.enemiesPerWave + Math.floor(nextWave * 1.5) + Math.floor(nextWave / 2);
+        const isBossWave = nextWave % 5 === 0;
+        
+        // Update aktuelle Wellen-Information
+        const currentWaveText = document.querySelector('.wave-text');
+        if (currentWaveText && this.waveInProgress) {
+            const currentEnemies = this.enemiesPerWave + Math.floor(this.wave * 1.5) + Math.floor((this.wave - 1) / 2);
+            const remaining = currentEnemies - this.enemies.filter(e => e.health <= 0).length;
+            currentWaveText.innerHTML = `Welle ${this.wave} - ${remaining}/${currentEnemies} Feinde`;
+        } else if (currentWaveText) {
+            let difficultyIndicator = '';
+            if (this.wave >= 20) difficultyIndicator = ' ⚡ EXTREM';
+            else if (this.wave >= 15) difficultyIndicator = ' � SEHR SCHWER';
+            else if (this.wave >= 10) difficultyIndicator = ' ⚠️ SCHWER';
+            else if (this.wave >= 5) difficultyIndicator = ' 📈 MITTEL';
+            
+            currentWaveText.innerHTML = `Welle <span id="currentWave">${this.wave}</span>${difficultyIndicator}`;
+        }
+        
+        // Berechne voraussichtliche Gegnertypen für nächste Welle
+        let previewText = `Nächste Welle ${nextWave}: ${nextWaveEnemies} Feinde`;
+        
+        if (isBossWave) {
+            previewText += ' 👑 BOSS';
+        } else {
+            if (nextWave >= 20) previewText += ' ⚡ EXTREM';
+            else if (nextWave >= 15) previewText += ' 🔥 SEHR SCHWER';
+            else if (nextWave >= 10) previewText += ' ⚠️ SCHWER';
+            else if (nextWave >= 5) previewText += ' 📈 MITTEL';
+        }
+        
+        // Update den Start-Button Text
+        const startBtn = document.getElementById('startWave');
+        if (!this.waveInProgress && startBtn && !startBtn.disabled) {
+            startBtn.title = previewText;
+        }
+        
+        // Erstelle ein Vorschau-Element falls es nicht existiert
+        let previewElement = document.getElementById('wavePreview');
+        if (!previewElement) {
+            previewElement = document.createElement('div');
+            previewElement.id = 'wavePreview';
+            previewElement.style.cssText = `
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                background: rgba(0, 0, 0, 0.8);
+                color: white;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                border: 1px solid #444;
+                z-index: 100;
+            `;
+            document.body.appendChild(previewElement);
+        }
+        
+        if (previewElement) {
+            previewElement.textContent = previewText;
+            
+            // Spezielle Farben für verschiedene Schwierigkeitsgrade
+            if (isBossWave) {
+                previewElement.style.background = 'rgba(128, 0, 128, 0.9)';
+                previewElement.style.border = '2px solid #ff4444';
+            } else if (nextWave >= 15) {
+                previewElement.style.background = 'rgba(255, 69, 0, 0.9)';
+            } else if (nextWave >= 10) {
+                previewElement.style.background = 'rgba(255, 140, 0, 0.9)';
+            } else {
+                previewElement.style.background = 'rgba(0, 0, 0, 0.8)';
+                previewElement.style.border = '1px solid #444';
+            }
+        }
+    }
+    
     gameOver() {
         this.gameRunning = false;
+        this.updateStatistics();
         
-        const gameOverDiv = document.createElement('div');
-        gameOverDiv.className = 'game-over';
-        gameOverDiv.innerHTML = `
-            <div class="game-over-content">
-                <h2>Game Over!</h2>
-                <p>Welle erreicht: ${this.wave}</p>
-                <p>Endpunktzahl: ${this.score}</p>
-                <button onclick="game.restartGame(); this.parentElement.parentElement.remove();" class="control-btn">
-                    Nochmal spielen
-                </button>
-            </div>
-        `;
+        // Zeige den neuen Game Over Screen
+        this.showGameOverScreen();
+    }
+    
+    showGameOverScreen() {
+        const gameOverScreen = document.getElementById('gameOverScreen');
         
-        document.body.appendChild(gameOverDiv);
+        if (gameOverScreen) {
+            // Statistiken aktualisieren
+            const finalWave = document.getElementById('finalWave');
+            const finalScore = document.getElementById('finalScore');
+            const finalGold = document.getElementById('finalGold');
+            const finalKills = document.getElementById('finalKills');
+            
+            if (finalWave) finalWave.textContent = this.wave;
+            if (finalScore) finalScore.textContent = this.score.toLocaleString();
+            if (finalGold) finalGold.textContent = this.goldEarned.toLocaleString();
+            if (finalKills) finalKills.textContent = this.totalKills.toLocaleString();
+            
+            gameOverScreen.style.display = 'flex';
+            
+            // Animation für den Game Over Screen
+            setTimeout(() => {
+                gameOverScreen.classList.add('show');
+            }, 100);
+        } else {
+            // Fallback zur alten Methode
+            const gameOverDiv = document.createElement('div');
+            gameOverDiv.className = 'game-over';
+            gameOverDiv.innerHTML = `
+                <div class="game-over-content">
+                    <h2>Game Over!</h2>
+                    <p>Welle erreicht: ${this.wave}</p>
+                    <p>Endpunktzahl: ${this.score}</p>
+                    <button onclick="game.restartGame(); this.parentElement.parentElement.remove();" class="control-btn">
+                        Nochmal spielen
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(gameOverDiv);
+        }
+    }
+    
+    restartGameFromGameOver() {
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        if (gameOverScreen) {
+            gameOverScreen.style.display = 'none';
+        }
+        this.restartGame();
     }
 }
 
@@ -1360,13 +1937,44 @@ class Enemy {
         };
         
         const stats = baseStats[this.type];
-        this.maxHealth = stats.health + wave * 5;
+        
+        // Progressive Skalierung mit jeder Welle
+        const waveScaling = 1 + (wave - 1) * 0.15; // 15% Stärke-Zuwachs pro Welle
+        const healthScaling = 1 + (wave - 1) * 0.25; // 25% Gesundheits-Zuwachs pro Welle
+        const speedScaling = Math.min(1 + (wave - 1) * 0.05, 2); // Max 2x Geschwindigkeit
+        
+        // Basis-Werte mit progressiver Skalierung
+        this.maxHealth = Math.floor(stats.health * healthScaling + wave * 3);
         this.health = this.maxHealth;
-        this.baseSpeed = stats.speed;
+        this.baseSpeed = stats.speed * speedScaling;
         this.speed = this.baseSpeed;
-        this.reward = stats.reward;
-        this.points = stats.points;
+        
+        // Belohnungen steigen auch mit der Schwierigkeit
+        this.reward = Math.floor(stats.reward * waveScaling);
+        this.points = Math.floor(stats.points * waveScaling);
         this.size = stats.size;
+        
+        // Spezielle Bonus-Eigenschaften für höhere Wellen
+        if (wave >= 10) {
+            // Ab Welle 10: Alle Feinde erhalten Bonus-Gesundheit
+            this.maxHealth = Math.floor(this.maxHealth * 1.3);
+            this.health = this.maxHealth;
+        }
+        
+        if (wave >= 15) {
+            // Ab Welle 15: Zusätzliche Geschwindigkeit
+            this.baseSpeed *= 1.2;
+            this.speed = this.baseSpeed;
+        }
+        
+        if (wave >= 20) {
+            // Ab Welle 20: Feinde werden größer und noch stärker
+            this.maxHealth = Math.floor(this.maxHealth * 1.5);
+            this.health = this.maxHealth;
+            this.size *= 1.1;
+            this.reward = Math.floor(this.reward * 1.5);
+            this.points = Math.floor(this.points * 1.5);
+        }
     }
     
     update() {
@@ -1706,8 +2314,124 @@ class Particle {
     }
 }
 
+// Globale Funktionen für Modals
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+// Modal-Hintergrund-Klicks zum Schließen
+window.addEventListener('click', (e) => {
+    if (e.target.classList.contains('modal-background')) {
+        const modal = e.target.closest('.modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+});
+
+// Global Settings Functions
+function saveSettings() {
+    if (game && game.settings) {
+        game.saveSettingsData();
+        game.applySettings();
+        closeModal('settingsModal');
+        
+        // Show success message
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--success-green);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            z-index: 10000;
+            font-weight: 500;
+            box-shadow: var(--shadow-lg);
+        `;
+        notification.textContent = 'Einstellungen gespeichert!';
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
+    }
+}
+
+function resetSettings() {
+    if (game) {
+        // Reset to default settings
+        const defaultSettings = {
+            performance: {
+                fpsLimit: 60,
+                particleQuality: 'medium'
+            },
+            audio: {
+                masterVolume: 100,
+                sfxVolume: 80,
+                musicVolume: 60
+            },
+            graphics: {
+                shadows: true,
+                animations: true,
+                backgroundEffects: true
+            },
+            gameplay: {
+                autoSave: true,
+                showFPS: false,
+                pauseOnFocusLoss: true,
+                confirmSell: true
+            },
+            controls: {
+                quickBuild: false,
+                rightClickSell: false
+            }
+        };
+        
+        game.settings = defaultSettings;
+        game.loadSettingsIntoUI();
+        game.applySettings();
+    }
+}
+
+// Panel Toggle Functionality
+function toggleSection(sectionClass) {
+    const section = document.querySelector(`.${sectionClass}`);
+    if (!section) return;
+    
+    const toggle = section.querySelector('.section-toggle');
+    const content = section.querySelector('.section-content');
+    
+    if (section.classList.contains('expanded')) {
+        // Collapse
+        section.classList.remove('expanded');
+        section.classList.add('collapsed');
+        toggle.style.transform = 'rotate(-90deg)';
+        content.style.maxHeight = '0';
+        content.style.opacity = '0';
+    } else {
+        // Expand
+        section.classList.remove('collapsed');
+        section.classList.add('expanded');
+        toggle.style.transform = 'rotate(0deg)';
+        content.style.maxHeight = 'none';
+        content.style.opacity = '1';
+    }
+}
+
 // Spiel starten
 let game;
 window.addEventListener('load', () => {
     game = new Game();
+    
+    // Hauptmenü initial anzeigen
+    const mainMenu = document.getElementById('mainMenu');
+    const gameContainer = document.getElementById('gameContainer');
+    
+    if (mainMenu) mainMenu.style.display = 'flex';
+    if (gameContainer) gameContainer.style.display = 'none';
 });
