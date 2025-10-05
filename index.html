@@ -14,69 +14,164 @@
         <div class="menu-background"></div>
         <div class="menu-content">
             <div class="game-logo">
-                <h1 class="logo-title">
+                <div class="logo-icon">
                     <i class="fas fa-crown"></i>
-                    Rush Royal
-                </h1>
+                    <div class="logo-glow"></div>
+                </div>
+                <h1 class="logo-title">Rush Royal</h1>
                 <p class="logo-subtitle">Tower Defense Elite</p>
+                <div class="version-badge">v3.0.0</div>
+            </div>
+            
+            <!-- Player Status Bar -->
+            <div class="player-status-bar">
+                <div class="status-item">
+                    <i class="fas fa-user"></i>
+                    <span id="playerNameDisplay">Spieler</span>
+                </div>
+                <div class="status-item">
+                    <i class="fas fa-trophy"></i>
+                    <span id="playerLevelDisplay">Level 1</span>
+                </div>
+                <div class="status-item">
+                    <i class="fas fa-coins"></i>
+                    <span id="totalGoldDisplay">0</span>
+                </div>
             </div>
             
             <div class="menu-buttons">
-                <button id="startGame" class="menu-btn primary">
-                    <i class="fas fa-play"></i>
-                    <span>Spiel Starten</span>
-                </button>
-                
-                <button id="howToPlay" class="menu-btn secondary">
-                    <i class="fas fa-question-circle"></i>
-                    <span>Spielanleitung</span>
-                </button>
-                
-                <button id="settings" class="menu-btn secondary">
-                    <i class="fas fa-cog"></i>
-                    <span>Einstellungen</span>
-                </button>
-                
-                <button id="statistics" class="menu-btn secondary">
-                    <i class="fas fa-chart-bar"></i>
-                    <span>Statistiken</span>
-                </button>
-                
-                <button id="skillTreeMenu" class="menu-btn secondary skill-tree-btn">
-                    <i class="fas fa-magic"></i>
-                    <span>Skills & Upgrades</span>
-                    <div id="skillPointsBadge" class="skill-points-badge" style="display: none;">0</div>
-                </button>
-                
-                <button id="mapSelection" class="menu-btn secondary">
-                    <i class="fas fa-map"></i>
-                    <span>Maps</span>
-                </button>
+                <!-- Hauptaktion -->
+                <div class="menu-section primary-section">
+                    <button id="startGame" class="menu-btn primary large">
+                        <i class="fas fa-play"></i>
+                        <span>Spiel Starten</span>
+                    </button>
+                </div>
 
-                <button id="mapEditor" class="menu-btn secondary">
-                    <i class="fas fa-edit"></i>
-                    <span>Map Editor</span>
-                </button>
+                <!-- Spielmodi -->
+                <div class="menu-section">
+                    <h3 class="section-title">
+                        <i class="fas fa-gamepad"></i>
+                        Spielmodi
+                    </h3>
+                    <div class="menu-grid">
+                        <button id="multiplayer" class="menu-btn secondary">
+                            <i class="fas fa-users"></i>
+                            <span>Multiplayer</span>
+                        </button>
 
-                <button id="multiplayer" class="menu-btn secondary">
-                    <i class="fas fa-users"></i>
-                    <span>Multiplayer</span>
-                </button>
+                        <button id="mapSelection" class="menu-btn secondary">
+                            <i class="fas fa-map"></i>
+                            <span>Maps</span>
+                        </button>
 
-                <button id="tradingSystem" class="menu-btn secondary">
-                    <i class="fas fa-store"></i>
-                    <span>Trading</span>
-                </button>
+                        <button id="mapEditor" class="menu-btn secondary">
+                            <i class="fas fa-edit"></i>
+                            <span>Map Editor</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Progression & Upgrades -->
+                <div class="menu-section">
+                    <h3 class="section-title">
+                        <i class="fas fa-chart-line"></i>
+                        Fortschritt & Upgrades
+                    </h3>
+                    <div class="menu-grid">
+                        <button id="skillTreeMenu" class="menu-btn secondary skill-tree-btn">
+                            <i class="fas fa-magic"></i>
+                            <span>Skills & Upgrades</span>
+                            <div id="skillPointsBadge" class="skill-points-badge" style="display: none;">0</div>
+                        </button>
+
+                        <button id="towerPrestige" class="menu-btn secondary">
+                            <i class="fas fa-crown"></i>
+                            <span>Tower Prestige</span>
+                        </button>
+
+                        <button id="statistics" class="menu-btn secondary">
+                            <i class="fas fa-chart-bar"></i>
+                            <span>Statistiken</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Community & Trading -->
+                <div class="menu-section">
+                    <h3 class="section-title">
+                        <i class="fas fa-users-cog"></i>
+                        Community & Trading
+                    </h3>
+                    <div class="menu-grid">
+                        <button id="guildsystem" class="menu-btn secondary">
+                            <i class="fas fa-shield-alt"></i>
+                            <span>Gilden</span>
+                        </button>
+
+                        <button id="tradingSystem" class="menu-btn secondary">
+                            <i class="fas fa-store"></i>
+                            <span>Trading</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Einstellungen & Hilfe -->
+                <div class="menu-section">
+                    <h3 class="section-title">
+                        <i class="fas fa-cog"></i>
+                        Einstellungen & Hilfe
+                    </h3>
+                    <div class="menu-grid">
+                        <button id="settings" class="menu-btn secondary">
+                            <i class="fas fa-cog"></i>
+                            <span>Einstellungen</span>
+                        </button>
+
+                        <button id="howToPlay" class="menu-btn secondary">
+                            <i class="fas fa-question-circle"></i>
+                            <span>Spielanleitung</span>
+                        </button>
+                    </div>
+                </div>
             </div>
             
-            <!-- Was ist neu Button -->
-            <button id="changelogBtn" class="changelog-button" title="Was ist neu?">
-                <i class="fas fa-question"></i>
-            </button>
+            <!-- Footer Actions -->
+            <div class="menu-footer-actions">
+                <button id="changelogBtn" class="footer-action-btn" title="Was ist neu?">
+                    <i class="fas fa-star"></i>
+                    <span>Was ist neu?</span>
+                </button>
+                
+                <div class="social-links">
+                    <a href="https://discord.gg/your-discord-link" class="social-link" title="Discord">
+                        <i class="fab fa-discord"></i>
+                    </a>
+                    <a href="https://github.com/LetsJonnTV/rush_royal.github.io" class="social-link" title="GitHub">
+                        <i class="fab fa-github"></i>
+                    </a>
+                </div>
+            </div>
             
             <div class="menu-footer">
-                <p>&copy; 2025 Rush Royal - Tower Defense Elite, by Jonn2008</p>
-                <p>Version 3.0.0</p>
+                <p>&copy; 2025 Rush Royal - Tower Defense Elite</p>
+                <p>Created by <strong>Jonn2008</strong></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="loading-screen" style="display: none;">
+        <div class="loading-content">
+            <div class="loading-spinner">
+                <div class="spinner-ring"></div>
+                <div class="spinner-ring"></div>
+                <div class="spinner-ring"></div>
+            </div>
+            <h2>Rush Royal</h2>
+            <p id="loadingText">Spiel wird geladen...</p>
+            <div class="loading-bar">
+                <div class="loading-progress" id="loadingProgress"></div>
             </div>
         </div>
     </div>
@@ -86,23 +181,60 @@
         <div class="game-over-background"></div>
         <div class="game-over-content">
             <div class="game-over-header">
-                <h1 class="game-over-title">
+                <div class="game-over-icon">
                     <i class="fas fa-skull-crossbones"></i>
-                    Game Over
-                </h1>
+                    <div class="icon-pulse"></div>
+                </div>
+                <h1 class="game-over-title">Game Over</h1>
                 <p class="game-over-subtitle">Dein Königreich ist gefallen!</p>
             </div>
             
             <div class="game-over-stats">
-                <div class="stat-item">
-                    <div class="stat-icon"><i class="fas fa-wave-square"></i></div>
+                <div class="stat-card">
+                    <div class="stat-icon waves">
+                        <i class="fas fa-wave-square"></i>
+                    </div>
                     <div class="stat-info">
                         <span class="stat-label">Erreichte Welle</span>
                         <span class="stat-value" id="finalWave">1</span>
                     </div>
                 </div>
                 
-                <div class="stat-item">
+                <div class="stat-card">
+                    <div class="stat-icon score">
+                        <i class="fas fa-star"></i>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-label">Endpunktzahl</span>
+                        <span class="stat-value" id="finalScore">0</span>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon kills">
+                        <i class="fas fa-skull"></i>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-label">Eliminierte Gegner</span>
+                        <span class="stat-value" id="finalKills">0</span>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon gold">
+                        <i class="fas fa-coins"></i>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-label">Verdientes Gold</span>
+                        <span class="stat-value" id="finalGold">0</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Achievement Notifications -->
+            <div id="gameOverAchievements" class="game-over-achievements">
+                <!-- Achievements will be populated here -->
+            </div>
                     <div class="stat-icon"><i class="fas fa-trophy"></i></div>
                     <div class="stat-info">
                         <span class="stat-label">Endpunktzahl</span>
@@ -788,6 +920,11 @@
                 </div>
             </div>
             
+            <!-- Game Notifications -->
+            <div class="game-notifications" id="gameNotifications">
+                <!-- Dynamic notifications will appear here -->
+            </div>
+            
             <!-- Skill Effects Panel -->
             <div id="skillEffectsPanel" class="skill-effects-panel">
                 <div class="skill-effects-title">
@@ -1408,7 +1545,127 @@
             </div>
         </div>
     </div>
-    
+
+    <!-- Guild System Modal -->
+    <div id="guildModal" class="modal" style="display: none;">
+        <div class="modal-background" onclick="closeModal('guildModal')"></div>
+        <div class="modal-content guild-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-shield-alt"></i> Gilden System</h2>
+                <button class="modal-close" onclick="closeModal('guildModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="guild-tabs">
+                <button class="tab-btn active" onclick="showGuildTab('overview')">
+                    <i class="fas fa-home"></i> Übersicht
+                </button>
+                <button class="tab-btn" onclick="showGuildTab('members')">
+                    <i class="fas fa-users"></i> Mitglieder
+                </button>
+                <button class="tab-btn" onclick="showGuildTab('wars')">
+                    <i class="fas fa-swords"></i> Clan Wars
+                </button>
+                <button class="tab-btn" onclick="showGuildTab('create')">
+                    <i class="fas fa-plus"></i> Erstellen/Beitreten
+                </button>
+            </div>
+            
+            <div id="guildOverviewTab" class="guild-tab active">
+                <div id="guildInfo" class="guild-info">
+                    <!-- Guild info will be populated here -->
+                </div>
+            </div>
+            
+            <div id="guildMembersTab" class="guild-tab">
+                <div id="guildMembersList" class="guild-members-list">
+                    <!-- Guild members will be populated here -->
+                </div>
+            </div>
+            
+            <div id="guildWarsTab" class="guild-tab">
+                <div id="guildWarsList" class="guild-wars-list">
+                    <!-- Guild wars will be populated here -->
+                </div>
+            </div>
+            
+            <div id="guildCreateTab" class="guild-tab">
+                <div class="guild-create-section">
+                    <div class="create-guild-form">
+                        <h3><i class="fas fa-plus-circle"></i> Neue Gilde erstellen</h3>
+                        <input type="text" id="guildNameInput" placeholder="Gildenname" maxlength="30">
+                        <textarea id="guildDescInput" placeholder="Gildenbeschreibung" maxlength="200"></textarea>
+                        <select id="guildTypeSelect">
+                            <option value="casual">Casual - Entspannt spielen</option>
+                            <option value="competitive">Competitive - Wettbewerbsorientiert</option>
+                            <option value="hardcore">Hardcore - Nur für Profis</option>
+                        </select>
+                        <button onclick="createGuild()" class="guild-action-btn primary">
+                            <i class="fas fa-hammer"></i> Gilde erstellen
+                        </button>
+                    </div>
+                    
+                    <div class="join-guild-form">
+                        <h3><i class="fas fa-sign-in-alt"></i> Gilde beitreten</h3>
+                        <input type="text" id="guildCodeInput" placeholder="Gilden-Code (z.B. ABCD-1234)" maxlength="9">
+                        <button onclick="joinGuild()" class="guild-action-btn secondary">
+                            <i class="fas fa-door-open"></i> Beitreten
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tower Prestige Modal -->
+    <div id="prestigeModal" class="modal" style="display: none;">
+        <div class="modal-background" onclick="closeModal('prestigeModal')"></div>
+        <div class="modal-content prestige-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-crown"></i> Tower Prestige</h2>
+                <button class="modal-close" onclick="closeModal('prestigeModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="prestige-info">
+                <div class="prestige-explanation">
+                    <h3><i class="fas fa-star"></i> Was ist Prestige?</h3>
+                    <p>Prestige ermöglicht es dir, deine maximal aufgewerteten Türme zu "prestigieren" und dadurch:</p>
+                    <ul>
+                        <li><i class="fas fa-arrow-up"></i> Permanente Stat-Boni zu erhalten</li>
+                        <li><i class="fas fa-palette"></i> Exklusive visuelle Upgrades freizuschalten</li>
+                        <li><i class="fas fa-magic"></i> Spezielle Fähigkeiten zu aktivieren</li>
+                        <li><i class="fas fa-trophy"></i> Prestige-Punkte zu sammeln</li>
+                    </ul>
+                </div>
+                
+                <div class="prestige-currency">
+                    <div class="currency-display">
+                        <i class="fas fa-gem"></i>
+                        <span>Prestige Punkte: </span>
+                        <span id="prestigePointsDisplay">0</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="prestige-towers">
+                <h3><i class="fas fa-chess-rook"></i> Verfügbare Tower</h3>
+                <div id="prestigeTowersList" class="prestige-towers-grid">
+                    <!-- Prestige towers will be populated here -->
+                </div>
+            </div>
+            
+            <div class="prestige-bonuses">
+                <h3><i class="fas fa-chart-line"></i> Aktive Prestige-Boni</h3>
+                <div id="prestigeBonusesList" class="prestige-bonuses-list">
+                    <!-- Active prestige bonuses will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="game.js"></script>
 </body>
 </html>

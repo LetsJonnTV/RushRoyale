@@ -1479,6 +1479,11 @@ class Game {
             this.towers.push(tower);
             this.money -= cost;
             this.towersBuilt++;
+            
+            // Track tower usage for prestige system
+            if (prestigeSystem) {
+                prestigeSystem.trackTowerUsage(towerType, 'used');
+            }
 
             // Send to multiplayer if connected
             if (this.multiplayerMode && multiplayerManager && multiplayerManager.isConnected()) {
@@ -2575,6 +2580,17 @@ class Game {
         console.log('Restarting game');
         this.restartGame();
         this.gamePaused = false;
+        
+        // Initialize new systems if not already done
+        if (!guildSystem) {
+            guildSystem = new GuildSystem();
+            guildSystem.initialize();
+        }
+        
+        if (!prestigeSystem) {
+            prestigeSystem = new PrestigeSystem();
+            prestigeSystem.initialize();
+        }
         
         console.log('Game started successfully');
         
@@ -4828,6 +4844,12 @@ class Game {
             finalAmount *= (1 + this.equippedItemEffects.goldBonus);
         }
         
+        // Guild gold bonus
+        if (guildSystem) {
+            const guildBonuses = guildSystem.getGuildBonuses();
+            finalAmount *= (1 + guildBonuses.goldBonus);
+        }
+        
         this.money += Math.floor(finalAmount);
         this.goldEarned += Math.floor(finalAmount);
         
@@ -5022,6 +5044,20 @@ class Game {
         
         if (this.score > this.statistics.highestScore) {
             this.statistics.highestScore = this.score;
+        }
+        
+        // Award prestige points based on performance
+        if (prestigeSystem) {
+            const prestigePoints = Math.floor(this.wave / 5) + Math.floor(this.score / 10000);
+            if (prestigePoints > 0) {
+                prestigeSystem.awardPrestigePoints(prestigePoints);
+            }
+        }
+        
+        // Add guild contribution
+        if (guildSystem) {
+            const contribution = Math.floor(this.wave * 10 + this.score / 1000);
+            guildSystem.addContribution(contribution);
         }
         
         this.saveStatistics();
@@ -5320,11 +5356,30 @@ class Tower {
             this.range *= (1 + game.equippedItemEffects.rangeBonus);
             this.speed /= (1 + game.equippedItemEffects.speedBonus); // Geringere Zeit = höhere Feuerrate
         }
+        
+        // Apply prestige bonuses
+        if (prestigeSystem) {
+            const prestigeBonuses = prestigeSystem.getTowerPrestigeBonuses(this.type);
+            this.damage *= (1 + prestigeBonuses.damage);
+            this.range *= (1 + prestigeBonuses.range);
+            this.speed /= (1 + prestigeBonuses.speed);
+        }
+        
+        // Apply guild bonuses
+        if (guildSystem) {
+            const guildBonuses = guildSystem.getGuildBonuses();
+            this.damage *= (1 + guildBonuses.damageBonus);
+        }
     }
     
     upgrade() {
         this.level++;
         this.setStats();
+        
+        // Track tower upgrade for prestige system
+        if (prestigeSystem) {
+            prestigeSystem.trackTowerUsage(this.type, 'upgrade');
+        }
     }
     
     update(enemies, projectiles) {
@@ -5956,7 +6011,13 @@ class Projectile {
         }
         
         // Haupttreffer
+        const enemyWasKilled = this.target.health <= finalDamage;
         this.target.takeDamage(finalDamage, effects);
+        
+        // Track tower kill for prestige system
+        if (enemyWasKilled && prestigeSystem) {
+            prestigeSystem.trackTowerUsage(this.tower.type, 'kill');
+        }
         
         // Zusätzlicher Projektil bei Mehrfachschuss
         if (projectileCount > 1) {
@@ -8277,4 +8338,1205 @@ function setupMainMenuEventListeners() {
             }
         });
     }
+    
+    // Guild System Button
+    const guildBtn = document.getElementById('guildsystem');
+    if (guildBtn) {
+        guildBtn.addEventListener('click', () => {
+            if (typeof showGuildSystem === 'function') {
+                showGuildSystem();
+            }
+        });
+    }
+    
+    // Tower Prestige Button
+    const prestigeBtn = document.getElementById('towerPrestige');
+    if (prestigeBtn) {
+        prestigeBtn.addEventListener('click', () => {
+            if (typeof showPrestigeSystem === 'function') {
+                showPrestigeSystem();
+            }
+        });
+    }
 }
+
+// ==========================================================================
+// GUILD SYSTEM IMPLEMENTATION
+// ==========================================================================
+
+class GuildSystem {
+    constructor() {
+        this.currentGuild = null;
+        this.playerGuildData = {
+            guildId: null,
+            role: null, // 'leader', 'officer', 'member'
+            joinDate: null,
+            contribution: 0
+        };
+        this.guilds = new Map();
+        this.guildWars = [];
+        this.loadGuildData();
+    }
+
+    initialize() {
+        this.loadGuildData();
+        this.updateGuildDisplay();
+    }
+
+    loadGuildData() {
+        // Load from localStorage
+        const savedGuildData = localStorage.getItem('guildPlayerData');
+        if (savedGuildData) {
+            this.playerGuildData = JSON.parse(savedGuildData);
+        }
+
+        const savedGuilds = localStorage.getItem('allGuilds');
+        if (savedGuilds) {
+            const guildsArray = JSON.parse(savedGuilds);
+            this.guilds = new Map(guildsArray);
+        }
+
+        const savedWars = localStorage.getItem('guildWars');
+        if (savedWars) {
+            this.guildWars = JSON.parse(savedWars);
+        }
+
+        // Load current guild if player is in one
+        if (this.playerGuildData.guildId) {
+            this.currentGuild = this.guilds.get(this.playerGuildData.guildId);
+        }
+    }
+
+    saveGuildData() {
+        localStorage.setItem('guildPlayerData', JSON.stringify(this.playerGuildData));
+        localStorage.setItem('allGuilds', JSON.stringify(Array.from(this.guilds.entries())));
+        localStorage.setItem('guildWars', JSON.stringify(this.guildWars));
+    }
+
+    generateGuildCode() {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let result = '';
+        for (let i = 0; i < 4; i++) {
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        result += '-';
+        for (let i = 0; i < 4; i++) {
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+    }
+
+    createGuild(name, description, type) {
+        if (this.currentGuild) {
+            alert('Du bist bereits in einer Gilde!');
+            return false;
+        }
+
+        if (!name || name.trim().length < 3) {
+            alert('Gildenname muss mindestens 3 Zeichen lang sein!');
+            return false;
+        }
+
+        const guildId = 'guild_' + Date.now();
+        const guildCode = this.generateGuildCode();
+        
+        const newGuild = {
+            id: guildId,
+            name: name.trim(),
+            description: description.trim() || 'Keine Beschreibung',
+            type: type,
+            code: guildCode,
+            leader: game.playerName || 'Anonym',
+            members: [
+                {
+                    name: game.playerName || 'Anonym',
+                    role: 'leader',
+                    joinDate: Date.now(),
+                    level: game.statistics?.totalGames || 1,
+                    contribution: 0,
+                    online: true
+                }
+            ],
+            createdAt: Date.now(),
+            level: 1,
+            experience: 0,
+            wars: {
+                total: 0,
+                won: 0,
+                lost: 0
+            },
+            perks: {
+                goldBonus: 0,
+                expBonus: 0,
+                damageBonus: 0
+            }
+        };
+
+        this.guilds.set(guildId, newGuild);
+        this.currentGuild = newGuild;
+        this.playerGuildData = {
+            guildId: guildId,
+            role: 'leader',
+            joinDate: Date.now(),
+            contribution: 0
+        };
+
+        this.saveGuildData();
+        this.updateGuildDisplay();
+        
+        alert(`Gilde "${name}" erfolgreich erstellt!\nGilden-Code: ${guildCode}`);
+        return true;
+    }
+
+    joinGuild(guildCode) {
+        if (this.currentGuild) {
+            alert('Du bist bereits in einer Gilde!');
+            return false;
+        }
+
+        if (!guildCode || guildCode.length !== 9) {
+            alert('Ungültiger Gilden-Code!');
+            return false;
+        }
+
+        // Find guild by code
+        let targetGuild = null;
+        for (let guild of this.guilds.values()) {
+            if (guild.code === guildCode.toUpperCase()) {
+                targetGuild = guild;
+                break;
+            }
+        }
+
+        if (!targetGuild) {
+            alert('Gilde nicht gefunden!');
+            return false;
+        }
+
+        if (targetGuild.members.length >= 50) {
+            alert('Diese Gilde ist voll!');
+            return false;
+        }
+
+        // Add player to guild
+        const newMember = {
+            name: game.playerName || 'Anonym',
+            role: 'member',
+            joinDate: Date.now(),
+            level: game.statistics?.totalGames || 1,
+            contribution: 0,
+            online: true
+        };
+
+        targetGuild.members.push(newMember);
+        this.currentGuild = targetGuild;
+        this.playerGuildData = {
+            guildId: targetGuild.id,
+            role: 'member',
+            joinDate: Date.now(),
+            contribution: 0
+        };
+
+        this.guilds.set(targetGuild.id, targetGuild);
+        this.saveGuildData();
+        this.updateGuildDisplay();
+        
+        alert(`Erfolgreich der Gilde "${targetGuild.name}" beigetreten!`);
+        return true;
+    }
+
+    leaveGuild() {
+        if (!this.currentGuild) {
+            return false;
+        }
+
+        if (this.playerGuildData.role === 'leader' && this.currentGuild.members.length > 1) {
+            alert('Als Anführer musst du erst einen neuen Anführer ernennen oder die Gilde auflösen!');
+            return false;
+        }
+
+        if (confirm(`Möchtest du wirklich die Gilde "${this.currentGuild.name}" verlassen?`)) {
+            // Remove player from guild members
+            this.currentGuild.members = this.currentGuild.members.filter(
+                member => member.name !== (game.playerName || 'Anonym')
+            );
+
+            // If guild is empty, delete it
+            if (this.currentGuild.members.length === 0) {
+                this.guilds.delete(this.currentGuild.id);
+            } else {
+                this.guilds.set(this.currentGuild.id, this.currentGuild);
+            }
+
+            this.currentGuild = null;
+            this.playerGuildData = {
+                guildId: null,
+                role: null,
+                joinDate: null,
+                contribution: 0
+            };
+
+            this.saveGuildData();
+            this.updateGuildDisplay();
+            return true;
+        }
+        return false;
+    }
+
+    updateGuildDisplay() {
+        const guildInfo = document.getElementById('guildInfo');
+        if (!guildInfo) return;
+
+        if (!this.currentGuild) {
+            guildInfo.innerHTML = `
+                <div class="no-guild">
+                    <i class="fas fa-shield-alt" style="font-size: 3rem; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                    <h3>Du bist in keiner Gilde</h3>
+                    <p>Erstelle eine neue Gilde oder tritt einer bestehenden bei!</p>
+                    <button onclick="showGuildTab('create')" class="guild-action-btn primary">
+                        <i class="fas fa-plus"></i> Loslegen
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        const guild = this.currentGuild;
+        const playerMember = guild.members.find(m => m.name === (game.playerName || 'Anonym'));
+        
+        guildInfo.innerHTML = `
+            <div class="guild-header">
+                <h3><i class="fas fa-shield-alt"></i> ${guild.name}</h3>
+                <div class="guild-code">Code: <strong>${guild.code}</strong></div>
+                <p>${guild.description}</p>
+            </div>
+            
+            <div class="guild-stats">
+                <div class="guild-stat">
+                    <span class="guild-stat-value">${guild.level}</span>
+                    <span class="guild-stat-label">Gildenlevel</span>
+                </div>
+                <div class="guild-stat">
+                    <span class="guild-stat-value">${guild.members.length}/50</span>
+                    <span class="guild-stat-label">Mitglieder</span>
+                </div>
+                <div class="guild-stat">
+                    <span class="guild-stat-value">${guild.wars.won}/${guild.wars.total}</span>
+                    <span class="guild-stat-label">Siege/Kriege</span>
+                </div>
+                <div class="guild-stat">
+                    <span class="guild-stat-value">${playerMember?.contribution || 0}</span>
+                    <span class="guild-stat-label">Dein Beitrag</span>
+                </div>
+            </div>
+            
+            <div class="guild-perks">
+                <h4><i class="fas fa-star"></i> Gilden-Boni</h4>
+                <div class="perk-list">
+                    <div class="perk-item">
+                        <i class="fas fa-coins"></i> Gold Bonus: +${guild.perks.goldBonus}%
+                    </div>
+                    <div class="perk-item">
+                        <i class="fas fa-chart-line"></i> EXP Bonus: +${guild.perks.expBonus}%
+                    </div>
+                    <div class="perk-item">
+                        <i class="fas fa-sword"></i> Schaden Bonus: +${guild.perks.damageBonus}%
+                    </div>
+                </div>
+            </div>
+            
+            <div class="guild-actions">
+                <button onclick="guildSystem.copyGuildCode()" class="guild-action-btn secondary">
+                    <i class="fas fa-copy"></i> Code kopieren
+                </button>
+                <button onclick="guildSystem.leaveGuild()" class="guild-action-btn" style="background: var(--danger-red);">
+                    <i class="fas fa-sign-out-alt"></i> Gilde verlassen
+                </button>
+            </div>
+        `;
+
+        this.updateMembersDisplay();
+        this.updateWarsDisplay();
+    }
+
+    updateMembersDisplay() {
+        const membersList = document.getElementById('guildMembersList');
+        if (!membersList || !this.currentGuild) return;
+
+        const members = this.currentGuild.members.sort((a, b) => {
+            const roleOrder = { leader: 0, officer: 1, member: 2 };
+            return roleOrder[a.role] - roleOrder[b.role];
+        });
+
+        membersList.innerHTML = members.map(member => {
+            const roleColor = {
+                leader: 'var(--accent-gold)',
+                officer: 'var(--accent-blue)',
+                member: 'var(--text-light)'
+            };
+
+            const roleIcon = {
+                leader: 'fas fa-crown',
+                officer: 'fas fa-star',
+                member: 'fas fa-user'
+            };
+
+            return `
+                <div class="guild-member">
+                    <div class="guild-member-avatar" style="background: ${roleColor[member.role]};">
+                        <i class="${roleIcon[member.role]}"></i>
+                    </div>
+                    <div class="guild-member-info">
+                        <div class="guild-member-name">${member.name}</div>
+                        <div class="guild-member-role" style="color: ${roleColor[member.role]};">
+                            ${member.role === 'leader' ? 'Anführer' : 
+                              member.role === 'officer' ? 'Offizier' : 'Mitglied'}
+                        </div>
+                    </div>
+                    <div class="guild-member-stats">
+                        <span><i class="fas fa-trophy"></i> Level ${member.level}</span>
+                        <span><i class="fas fa-hands-helping"></i> ${member.contribution}</span>
+                        <span class="member-status ${member.online ? 'online' : 'offline'}">
+                            <i class="fas fa-circle"></i> ${member.online ? 'Online' : 'Offline'}
+                        </span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    updateWarsDisplay() {
+        const warsList = document.getElementById('guildWarsList');
+        if (!warsList) return;
+
+        if (this.guildWars.length === 0) {
+            warsList.innerHTML = `
+                <div class="no-wars">
+                    <i class="fas fa-swords" style="font-size: 2rem; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                    <h3>Keine Clan Wars verfügbar</h3>
+                    <p>Clan Wars werden bald verfügbar sein!</p>
+                </div>
+            `;
+            return;
+        }
+
+        warsList.innerHTML = this.guildWars.map(war => `
+            <div class="guild-war">
+                <div class="guild-war-header">
+                    <h4>${war.name}</h4>
+                    <div class="guild-war-status ${war.status}">
+                        ${war.status === 'active' ? 'Aktiv' : 
+                          war.status === 'ended' ? 'Beendet' : 'Bevorstehend'}
+                    </div>
+                </div>
+                <div class="guild-war-teams">
+                    <div class="guild-war-team">
+                        <strong>${war.team1.name}</strong>
+                        <div>Score: ${war.team1.score}</div>
+                    </div>
+                    <div class="guild-war-vs">VS</div>
+                    <div class="guild-war-team">
+                        <strong>${war.team2.name}</strong>
+                        <div>Score: ${war.team2.score}</div>
+                    </div>
+                </div>
+                <div class="guild-war-info">
+                    <p><i class="fas fa-calendar"></i> ${new Date(war.startTime).toLocaleDateString()}</p>
+                    <p><i class="fas fa-trophy"></i> Belohnung: ${war.reward}</p>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    copyGuildCode() {
+        if (!this.currentGuild) return;
+        
+        navigator.clipboard.writeText(this.currentGuild.code).then(() => {
+            alert(`Gilden-Code ${this.currentGuild.code} wurde kopiert!`);
+        }).catch(() => {
+            // Fallback für ältere Browser
+            const textArea = document.createElement('textarea');
+            textArea.value = this.currentGuild.code;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            alert(`Gilden-Code ${this.currentGuild.code} wurde kopiert!`);
+        });
+    }
+
+    addContribution(amount) {
+        if (!this.currentGuild) return;
+        
+        this.playerGuildData.contribution += amount;
+        
+        // Update in guild members list
+        const memberIndex = this.currentGuild.members.findIndex(
+            m => m.name === (game.playerName || 'Anonym')
+        );
+        if (memberIndex !== -1) {
+            this.currentGuild.members[memberIndex].contribution += amount;
+        }
+
+        // Add guild experience
+        this.currentGuild.experience += amount;
+        
+        // Level up guild if enough experience
+        const expNeeded = this.currentGuild.level * 1000;
+        if (this.currentGuild.experience >= expNeeded) {
+            this.currentGuild.level++;
+            this.currentGuild.experience -= expNeeded;
+            
+            // Increase guild perks
+            this.currentGuild.perks.goldBonus += 2;
+            this.currentGuild.perks.expBonus += 1;
+            this.currentGuild.perks.damageBonus += 1;
+            
+            // Show level up notification
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: var(--accent-gold);
+                color: black;
+                padding: 1rem 1.5rem;
+                border-radius: 8px;
+                z-index: 10000;
+                font-weight: bold;
+                box-shadow: var(--shadow-lg);
+            `;
+            notification.innerHTML = `
+                <i class="fas fa-star"></i> 
+                Gilde Level ${this.currentGuild.level} erreicht!
+            `;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => notification.remove(), 5000);
+        }
+
+        this.saveGuildData();
+    }
+
+    getGuildBonuses() {
+        if (!this.currentGuild) {
+            return { goldBonus: 0, expBonus: 0, damageBonus: 0 };
+        }
+        
+        return {
+            goldBonus: this.currentGuild.perks.goldBonus / 100,
+            expBonus: this.currentGuild.perks.expBonus / 100,
+            damageBonus: this.currentGuild.perks.damageBonus / 100
+        };
+    }
+}
+
+// ==========================================================================
+// TOWER PRESTIGE SYSTEM IMPLEMENTATION
+// ==========================================================================
+
+class PrestigeSystem {
+    constructor() {
+        this.prestigePoints = 0;
+        this.prestigedTowers = new Map(); // towerType -> prestigeLevel
+        this.prestigeBonuses = new Map(); // bonusType -> value
+        this.towerStats = new Map(); // Track tower usage stats
+        this.loadPrestigeData();
+    }
+
+    initialize() {
+        this.loadPrestigeData();
+        this.updatePrestigeDisplay();
+    }
+
+    loadPrestigeData() {
+        const savedPrestige = localStorage.getItem('towerPrestigeData');
+        if (savedPrestige) {
+            const data = JSON.parse(savedPrestige);
+            this.prestigePoints = data.prestigePoints || 0;
+            this.prestigedTowers = new Map(data.prestigedTowers || []);
+            this.prestigeBonuses = new Map(data.prestigeBonuses || []);
+            this.towerStats = new Map(data.towerStats || []);
+        }
+    }
+
+    savePrestigeData() {
+        const data = {
+            prestigePoints: this.prestigePoints,
+            prestigedTowers: Array.from(this.prestigedTowers.entries()),
+            prestigeBonuses: Array.from(this.prestigeBonuses.entries()),
+            towerStats: Array.from(this.towerStats.entries())
+        };
+        localStorage.setItem('towerPrestigeData', JSON.stringify(data));
+    }
+
+    trackTowerUsage(towerType, action, value = 1) {
+        const key = `${towerType}_${action}`;
+        const current = this.towerStats.get(key) || 0;
+        this.towerStats.set(key, current + value);
+        this.savePrestigeData();
+    }
+
+    getTowerRequirements(towerType) {
+        const requirements = {
+            basic: { upgrades: 50, kills: 1000, games: 10 },
+            ice: { upgrades: 40, kills: 800, games: 8 },
+            fire: { upgrades: 45, kills: 900, games: 9 },
+            lightning: { upgrades: 35, kills: 700, games: 7 },
+            poison: { upgrades: 40, kills: 800, games: 8 },
+            sniper: { upgrades: 30, kills: 600, games: 6 },
+            tesla: { upgrades: 25, kills: 500, games: 5 }
+        };
+        return requirements[towerType] || requirements.basic;
+    }
+
+    canPrestigeTower(towerType) {
+        const requirements = this.getTowerRequirements(towerType);
+        const stats = {
+            upgrades: this.towerStats.get(`${towerType}_upgrade`) || 0,
+            kills: this.towerStats.get(`${towerType}_kill`) || 0,
+            games: this.towerStats.get(`${towerType}_used`) || 0
+        };
+
+        return stats.upgrades >= requirements.upgrades &&
+               stats.kills >= requirements.kills &&
+               stats.games >= requirements.games;
+    }
+
+    prestigeTower(towerType) {
+        if (!this.canPrestigeTower(towerType)) {
+            alert('Anforderungen für Prestige nicht erfüllt!');
+            return false;
+        }
+
+        const currentLevel = this.prestigedTowers.get(towerType) || 0;
+        const newLevel = currentLevel + 1;
+        const cost = this.getPrestigeCost(towerType, newLevel);
+
+        if (this.prestigePoints < cost) {
+            alert(`Nicht genügend Prestige-Punkte! Benötigt: ${cost}, Verfügbar: ${this.prestigePoints}`);
+            return false;
+        }
+
+        if (confirm(`${towerType.charAt(0).toUpperCase() + towerType.slice(1)} Tower auf Prestige Level ${newLevel} aufwerten für ${cost} Prestige-Punkte?`)) {
+            this.prestigePoints -= cost;
+            this.prestigedTowers.set(towerType, newLevel);
+            
+            // Apply prestige bonuses
+            this.applyPrestigeBonuses(towerType, newLevel);
+            
+            // Reset tower stats for next prestige
+            this.towerStats.set(`${towerType}_upgrade`, 0);
+            this.towerStats.set(`${towerType}_kill`, 0);
+            this.towerStats.set(`${towerType}_used`, 0);
+
+            this.savePrestigeData();
+            this.updatePrestigeDisplay();
+            
+            // Show success notification
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: var(--accent-gold);
+                color: black;
+                padding: 1rem 1.5rem;
+                border-radius: 8px;
+                z-index: 10000;
+                font-weight: bold;
+                box-shadow: var(--shadow-lg);
+            `;
+            notification.innerHTML = `
+                <i class="fas fa-crown"></i> 
+                ${towerType.charAt(0).toUpperCase() + towerType.slice(1)} Tower erfolgreich prestigiert!
+            `;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => notification.remove(), 5000);
+            return true;
+        }
+        return false;
+    }
+
+    getPrestigeCost(towerType, level) {
+        const baseCosts = {
+            basic: 10,
+            ice: 15,
+            fire: 15,
+            lightning: 20,
+            poison: 15,
+            sniper: 25,
+            tesla: 30
+        };
+        
+        const baseCost = baseCosts[towerType] || 10;
+        return Math.floor(baseCost * Math.pow(1.5, level - 1));
+    }
+
+    applyPrestigeBonuses(towerType, level) {
+        // Damage bonus
+        const damageKey = `${towerType}_damage`;
+        const currentDamageBonus = this.prestigeBonuses.get(damageKey) || 0;
+        this.prestigeBonuses.set(damageKey, currentDamageBonus + 0.1); // +10% damage per level
+
+        // Range bonus
+        const rangeKey = `${towerType}_range`;
+        const currentRangeBonus = this.prestigeBonuses.get(rangeKey) || 0;
+        this.prestigeBonuses.set(rangeKey, currentRangeBonus + 0.05); // +5% range per level
+
+        // Special bonuses every 5 levels
+        if (level % 5 === 0) {
+            const speedKey = `${towerType}_speed`;
+            const currentSpeedBonus = this.prestigeBonuses.get(speedKey) || 0;
+            this.prestigeBonuses.set(speedKey, currentSpeedBonus + 0.1); // +10% fire rate every 5 levels
+        }
+
+        // Legendary bonuses every 10 levels
+        if (level % 10 === 0) {
+            const critKey = `${towerType}_crit`;
+            const currentCritBonus = this.prestigeBonuses.get(critKey) || 0;
+            this.prestigeBonuses.set(critKey, currentCritBonus + 0.05); // +5% crit chance every 10 levels
+        }
+    }
+
+    getTowerPrestigeBonuses(towerType) {
+        return {
+            damage: this.prestigeBonuses.get(`${towerType}_damage`) || 0,
+            range: this.prestigeBonuses.get(`${towerType}_range`) || 0,
+            speed: this.prestigeBonuses.get(`${towerType}_speed`) || 0,
+            crit: this.prestigeBonuses.get(`${towerType}_crit`) || 0
+        };
+    }
+
+    updatePrestigeDisplay() {
+        const prestigePointsDisplay = document.getElementById('prestigePointsDisplay');
+        if (prestigePointsDisplay) {
+            prestigePointsDisplay.textContent = this.prestigePoints;
+        }
+
+        this.updateTowersList();
+        this.updateBonusesList();
+    }
+
+    updateTowersList() {
+        const towersList = document.getElementById('prestigeTowersList');
+        if (!towersList) return;
+
+        const towerTypes = ['basic', 'ice', 'fire', 'lightning', 'poison', 'sniper', 'tesla'];
+        
+        towersList.innerHTML = towerTypes.map(towerType => {
+            const requirements = this.getTowerRequirements(towerType);
+            const stats = {
+                upgrades: this.towerStats.get(`${towerType}_upgrade`) || 0,
+                kills: this.towerStats.get(`${towerType}_kill`) || 0,
+                games: this.towerStats.get(`${towerType}_used`) || 0
+            };
+            const currentLevel = this.prestigedTowers.get(towerType) || 0;
+            const nextLevel = currentLevel + 1;
+            const cost = this.getPrestigeCost(towerType, nextLevel);
+            const canPrestige = this.canPrestigeTower(towerType);
+            const hasEnoughPoints = this.prestigePoints >= cost;
+
+            const towerNames = {
+                basic: 'Basic Tower',
+                ice: 'Ice Tower',
+                fire: 'Fire Tower',
+                lightning: 'Lightning Tower',
+                poison: 'Poison Tower',
+                sniper: 'Sniper Tower',
+                tesla: 'Tesla Tower'
+            };
+
+            const towerIcons = {
+                basic: 'fas fa-chess-rook',
+                ice: 'fas fa-snowflake',
+                fire: 'fas fa-fire',
+                lightning: 'fas fa-bolt',
+                poison: 'fas fa-skull',
+                sniper: 'fas fa-crosshairs',
+                tesla: 'fas fa-zap'
+            };
+
+            return `
+                <div class="prestige-tower-card">
+                    <div class="prestige-tower-header">
+                        <div class="prestige-tower-name">
+                            <i class="${towerIcons[towerType]}"></i>
+                            ${towerNames[towerType]}
+                        </div>
+                        <div class="prestige-level">Level ${currentLevel}</div>
+                    </div>
+                    
+                    <div class="prestige-requirements">
+                        <div>Fortschritt zum nächsten Prestige:</div>
+                        <div class="req-item ${stats.upgrades >= requirements.upgrades ? 'completed' : ''}">
+                            <i class="fas fa-arrow-up"></i> Upgrades: ${stats.upgrades}/${requirements.upgrades}
+                        </div>
+                        <div class="req-item ${stats.kills >= requirements.kills ? 'completed' : ''}">
+                            <i class="fas fa-skull"></i> Kills: ${stats.kills}/${requirements.kills}
+                        </div>
+                        <div class="req-item ${stats.games >= requirements.games ? 'completed' : ''}">
+                            <i class="fas fa-gamepad"></i> Spiele: ${stats.games}/${requirements.games}
+                        </div>
+                    </div>
+                    
+                    <div class="prestige-benefits">
+                        <strong>Nächste Boni:</strong>
+                        <div class="prestige-benefit">
+                            <i class="fas fa-sword"></i> +10% Schaden
+                        </div>
+                        <div class="prestige-benefit">
+                            <i class="fas fa-expand"></i> +5% Reichweite
+                        </div>
+                        ${nextLevel % 5 === 0 ? '<div class="prestige-benefit"><i class="fas fa-tachometer-alt"></i> +10% Feuerrate</div>' : ''}
+                        ${nextLevel % 10 === 0 ? '<div class="prestige-benefit"><i class="fas fa-star"></i> +5% Krit. Chance</div>' : ''}
+                    </div>
+                    
+                    <button 
+                        onclick="prestigeSystem.prestigeTower('${towerType}')" 
+                        class="prestige-action-btn"
+                        ${!canPrestige || !hasEnoughPoints ? 'disabled' : ''}
+                    >
+                        ${!canPrestige ? 'Anforderungen nicht erfüllt' : 
+                          !hasEnoughPoints ? `Benötigt ${cost} Punkte` : 
+                          `Prestige für ${cost} Punkte`}
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    updateBonusesList() {
+        const bonusesList = document.getElementById('prestigeBonusesList');
+        if (!bonusesList) return;
+
+        if (this.prestigeBonuses.size === 0) {
+            bonusesList.innerHTML = `
+                <div class="no-bonuses">
+                    <i class="fas fa-star" style="font-size: 2rem; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                    <p>Noch keine Prestige-Boni aktiv</p>
+                    <p>Prestigiere deine ersten Tower um Boni freizuschalten!</p>
+                </div>
+            `;
+            return;
+        }
+
+        const bonusesHtml = [];
+        const towerTypes = ['basic', 'ice', 'fire', 'lightning', 'poison', 'sniper', 'tesla'];
+        
+        towerTypes.forEach(towerType => {
+            const bonuses = this.getTowerPrestigeBonuses(towerType);
+            if (bonuses.damage > 0 || bonuses.range > 0 || bonuses.speed > 0 || bonuses.crit > 0) {
+                const towerName = towerType.charAt(0).toUpperCase() + towerType.slice(1);
+                
+                if (bonuses.damage > 0) {
+                    bonusesHtml.push(`
+                        <div class="prestige-bonus">
+                            <div class="prestige-bonus-info">
+                                <i class="fas fa-sword"></i>
+                                <span>${towerName} Schaden</span>
+                            </div>
+                            <div class="prestige-bonus-value">+${Math.round(bonuses.damage * 100)}%</div>
+                        </div>
+                    `);
+                }
+                
+                if (bonuses.range > 0) {
+                    bonusesHtml.push(`
+                        <div class="prestige-bonus">
+                            <div class="prestige-bonus-info">
+                                <i class="fas fa-expand"></i>
+                                <span>${towerName} Reichweite</span>
+                            </div>
+                            <div class="prestige-bonus-value">+${Math.round(bonuses.range * 100)}%</div>
+                        </div>
+                    `);
+                }
+                
+                if (bonuses.speed > 0) {
+                    bonusesHtml.push(`
+                        <div class="prestige-bonus">
+                            <div class="prestige-bonus-info">
+                                <i class="fas fa-tachometer-alt"></i>
+                                <span>${towerName} Feuerrate</span>
+                            </div>
+                            <div class="prestige-bonus-value">+${Math.round(bonuses.speed * 100)}%</div>
+                        </div>
+                    `);
+                }
+                
+                if (bonuses.crit > 0) {
+                    bonusesHtml.push(`
+                        <div class="prestige-bonus">
+                            <div class="prestige-bonus-info">
+                                <i class="fas fa-star"></i>
+                                <span>${towerName} Krit. Chance</span>
+                            </div>
+                            <div class="prestige-bonus-value">+${Math.round(bonuses.crit * 100)}%</div>
+                        </div>
+                    `);
+                }
+            }
+        });
+
+        bonusesList.innerHTML = bonusesHtml.join('');
+    }
+
+    awardPrestigePoints(amount) {
+        this.prestigePoints += amount;
+        this.savePrestigeData();
+        
+        // Show notification
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--accent-gold);
+            color: black;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            z-index: 10000;
+            font-weight: bold;
+            box-shadow: var(--shadow-lg);
+        `;
+        notification.innerHTML = `
+            <i class="fas fa-gem"></i> 
+            +${amount} Prestige-Punkte erhalten!
+        `;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => notification.remove(), 3000);
+    }
+}
+
+// Global instances
+let guildSystem;
+let prestigeSystem;
+
+// Global functions for GUI
+function showGuildSystem() {
+    if (!guildSystem) {
+        guildSystem = new GuildSystem();
+        guildSystem.initialize();
+    }
+    
+    const modal = document.getElementById('guildModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        guildSystem.updateGuildDisplay();
+    }
+}
+
+function showPrestigeSystem() {
+    if (!prestigeSystem) {
+        prestigeSystem = new PrestigeSystem();
+        prestigeSystem.initialize();
+    }
+    
+    const modal = document.getElementById('prestigeModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        prestigeSystem.updatePrestigeDisplay();
+    }
+}
+
+function showGuildTab(tabName) {
+    // Hide all tabs
+    document.querySelectorAll('.guild-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Hide all tab buttons
+    document.querySelectorAll('.guild-tabs .tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Show selected tab
+    document.getElementById('guild' + tabName.charAt(0).toUpperCase() + tabName.slice(1) + 'Tab').classList.add('active');
+    event.target.classList.add('active');
+}
+
+function createGuild() {
+    const name = document.getElementById('guildNameInput').value;
+    const description = document.getElementById('guildDescInput').value;
+    const type = document.getElementById('guildTypeSelect').value;
+    
+    if (guildSystem && guildSystem.createGuild(name, description, type)) {
+        // Clear form
+        document.getElementById('guildNameInput').value = '';
+        document.getElementById('guildDescInput').value = '';
+        document.getElementById('guildTypeSelect').value = 'casual';
+        
+        // Switch to overview tab
+        showGuildTab('overview');
+    }
+}
+
+function joinGuild() {
+    const guildCode = document.getElementById('guildCodeInput').value;
+    
+    if (guildSystem && guildSystem.joinGuild(guildCode)) {
+        // Clear form
+        document.getElementById('guildCodeInput').value = '';
+        
+        // Switch to overview tab
+        showGuildTab('overview');
+    }
+}
+
+// ==========================================================================
+// UI ENHANCEMENT SYSTEM
+// ==========================================================================
+
+// Enhanced notification system
+function showGameNotification(message, type = 'info', duration = 3000) {
+    const container = document.getElementById('gameNotifications');
+    if (!container) return;
+
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    
+    const iconMap = {
+        success: 'fa-check-circle',
+        warning: 'fa-exclamation-triangle',
+        error: 'fa-times-circle',
+        info: 'fa-info-circle'
+    };
+    
+    notification.innerHTML = `
+        <div class="notification-icon">
+            <i class="fas ${iconMap[type] || iconMap.info}"></i>
+        </div>
+        <div class="notification-text">${message}</div>
+    `;
+    
+    container.appendChild(notification);
+    
+    // Auto remove after duration
+    setTimeout(() => {
+        notification.classList.add('removing');
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, duration);
+}
+
+// Enhanced stat update with animations
+function updateStatWithAnimation(elementId, newValue, oldValue = null) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    
+    const currentValue = element.textContent;
+    element.textContent = newValue;
+    
+    // Animate value changes
+    if (oldValue !== null && currentValue !== newValue.toString()) {
+        if (elementId === 'money' || elementId === 'score') {
+            if (parseInt(newValue) > parseInt(currentValue)) {
+                element.classList.add('increasing');
+                setTimeout(() => element.classList.remove('increasing'), 300);
+            } else if (parseInt(newValue) < parseInt(currentValue)) {
+                element.classList.add('decreasing');
+                setTimeout(() => element.classList.remove('decreasing'), 300);
+            }
+        }
+        
+        // Add pulse animation to stat card
+        const statCard = element.closest('.stat-card');
+        if (statCard) {
+            statCard.classList.add('updating');
+            setTimeout(() => statCard.classList.remove('updating'), 400);
+        }
+    }
+}
+
+// Tower card visual feedback
+function updateTowerCardVisuals() {
+    document.querySelectorAll('.tower-card').forEach(card => {
+        const cost = parseInt(card.dataset.cost);
+        const currentMoney = game ? game.money : 0;
+        
+        // Visual feedback for affordability
+        if (currentMoney >= cost) {
+            card.classList.add('affordable');
+            card.classList.remove('expensive');
+        } else {
+            card.classList.add('expensive');
+            card.classList.remove('affordable');
+        }
+    });
+}
+
+// Wave progress animation
+function updateWaveProgressBar(progress) {
+    const progressBar = document.getElementById('waveProgress');
+    if (!progressBar) return;
+    
+    progressBar.style.width = `${Math.min(progress, 100)}%`;
+}
+
+// Critical status animations
+function updateCriticalStatus(lives) {
+    const livesCard = document.querySelector('.stat-card.lives');
+    if (livesCard) {
+        if (lives <= 5) {
+            livesCard.classList.add('critical');
+        } else {
+            livesCard.classList.remove('critical');
+        }
+    }
+}
+
+// Enhanced money management with notifications
+function addMoneyWithNotification(amount, source = '') {
+    if (window.game) {
+        const oldMoney = window.game.money;
+        window.game.money += amount;
+        window.game.goldEarned += amount;
+        
+        if (amount > 0 && source) {
+            showGameNotification(`+${amount} Gold ${source}`, 'success', 2000);
+        }
+        
+        updateStatWithAnimation('money', window.game.money, oldMoney);
+        updateTowerCardVisuals();
+    }
+}
+
+function removeMoneyWithNotification(amount, source = '') {
+    if (window.game) {
+        const oldMoney = window.game.money;
+        window.game.money = Math.max(0, window.game.money - amount);
+        
+        if (amount > 0 && source) {
+            showGameNotification(`-${amount} Gold ${source}`, 'warning', 2000);
+        }
+        
+        updateStatWithAnimation('money', window.game.money, oldMoney);
+        updateTowerCardVisuals();
+    }
+}
+
+// Enhanced score management
+function addScoreWithNotification(amount, source = '') {
+    if (window.game) {
+        const oldScore = window.game.score;
+        window.game.score += amount;
+        
+        if (amount > 0 && source) {
+            showGameNotification(`+${amount} Punkte ${source}`, 'success', 1500);
+        }
+        
+        updateStatWithAnimation('score', window.game.score, oldScore);
+    }
+}
+
+// Lives management with enhanced feedback
+function loseLivesWithNotification(amount = 1) {
+    if (window.game) {
+        const oldLives = window.game.lives;
+        window.game.lives = Math.max(0, window.game.lives - amount);
+        
+        if (window.game.lives > 0) {
+            showGameNotification(`${amount} Leben verloren! ${window.game.lives} verbleibend`, 'error', 2500);
+        }
+        
+        updateStatWithAnimation('lives', window.game.lives, oldLives);
+        updateCriticalStatus(window.game.lives);
+        
+        if (window.game.lives <= 0) {
+            window.game.gameOver();
+        }
+    }
+}
+
+// Guild and Prestige notifications
+function showGuildNotification(message, type = 'info') {
+    showGameNotification(`🏰 ${message}`, type, 4000);
+}
+
+function showPrestigeNotification(message, type = 'success') {
+    showGameNotification(`⭐ ${message}`, type, 4000);
+}
+
+// Achievement notifications with special styling
+function showAchievementNotification(title, description) {
+    const container = document.getElementById('gameNotifications');
+    if (!container) return;
+
+    const notification = document.createElement('div');
+    notification.className = 'notification achievement';
+    notification.style.borderLeft = '4px solid #ffd700';
+    notification.style.background = 'linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 255, 255, 0.95))';
+    
+    notification.innerHTML = `
+        <div class="notification-icon" style="color: #ffd700;">
+            <i class="fas fa-trophy"></i>
+        </div>
+        <div class="notification-text">
+            <strong>${title}</strong><br>
+            <small>${description}</small>
+        </div>
+    `;
+    
+    container.appendChild(notification);
+    
+    // Special achievement sound effect would go here
+    
+    // Longer duration for achievements
+    setTimeout(() => {
+        notification.classList.add('removing');
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, 6000);
+}
+
+// Initialize enhanced UI when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    // Set up tower card hover effects
+    document.querySelectorAll('.tower-card').forEach(card => {
+        card.addEventListener('mouseenter', function() {
+            this.style.transform = 'translateY(-4px) scale(1.02)';
+        });
+        
+        card.addEventListener('mouseleave', function() {
+            if (!this.classList.contains('selected')) {
+                this.style.transform = '';
+            }
+        });
+    });
+    
+    // Enhanced stat card interactions
+    document.querySelectorAll('.stat-card').forEach(card => {
+        card.addEventListener('mouseenter', function() {
+            this.style.transform = 'translateY(-3px) scale(1.02)';
+        });
+        
+        card.addEventListener('mouseleave', function() {
+            this.style.transform = '';
+        });
+    });
+});
+
+// Export enhanced functions to global scope for game integration
+window.gameUI = {
+    showNotification: showGameNotification,
+    updateStatWithAnimation: updateStatWithAnimation,
+    updateTowerCardVisuals: updateTowerCardVisuals,
+    updateWaveProgressBar: updateWaveProgressBar,
+    updateCriticalStatus: updateCriticalStatus,
+    addMoneyWithNotification: addMoneyWithNotification,
+    removeMoneyWithNotification: removeMoneyWithNotification,
+    addScoreWithNotification: addScoreWithNotification,
+    loseLivesWithNotification: loseLivesWithNotification,
+    showGuildNotification: showGuildNotification,
+    showPrestigeNotification: showPrestigeNotification,
+    showAchievementNotification: showAchievementNotification
+};
