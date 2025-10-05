@@ -518,6 +518,17 @@
                     <span class="achievement-text"></span>
                 </div>
             </div>
+            
+            <!-- Skill Effects Panel -->
+            <div id="skillEffectsPanel" class="skill-effects-panel">
+                <div class="skill-effects-title">
+                    <i class="fas fa-magic"></i>
+                    <span>Aktive Skill-Effekte</span>
+                </div>
+                <div id="skillEffectsList" class="skill-effects-list">
+                    <!-- Dynamic skill effects will be displayed here -->
+                </div>
+            </div>
         </header>
         
         <!-- Main Game Area -->
@@ -799,6 +810,16 @@
                             <span>2x Speed</span>
                         </button>
                         
+                        <button id="fusionBtn" class="control-btn special">
+                            <i class="fas fa-magic"></i>
+                            <span>Tower Fusion</span>
+                        </button>
+                        
+                        <button id="skillTreeBtn" class="control-btn special">
+                            <i class="fas fa-tree"></i>
+                            <span>Skill Tree</span>
+                        </button>
+                        
                         <button id="restartGame" class="control-btn danger">
                             <i class="fas fa-redo"></i>
                             <span>Neustart</span>
@@ -833,6 +854,136 @@
                             <span>Verkaufen</span>
                         </button>
                     </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Skill Tree Modal -->
+        <div id="skillTreeModal" class="skill-tree-modal" style="display: none;">
+            <div class="skill-tree-background"></div>
+            <div class="skill-tree-content">
+                <div class="skill-tree-header">
+                    <h2><i class="fas fa-tree"></i> Skill Tree</h2>
+                    <button class="skill-tree-close" id="skillTreeClose">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="skill-tree-info">
+                    <div class="skill-points-display">
+                        <i class="fas fa-star"></i>
+                        <span>Skill Punkte: <span id="skillPointsDisplay">0</span></span>
+                    </div>
+                </div>
+                
+                <div class="skill-tree-branches">
+                    <!-- Damage Branch -->
+                    <div class="skill-branch damage-branch">
+                        <h3><i class="fas fa-sword"></i> Schaden</h3>
+                        <div class="skill-nodes">
+                            <div class="skill-node" data-skill="increasedDamage">
+                                <div class="skill-icon"><i class="fas fa-plus"></i></div>
+                                <div class="skill-info">
+                                    <h4>Erhöhter Schaden</h4>
+                                    <p>+20% Tower Schaden</p>
+                                    <span class="skill-level">Level: <span class="current-level">0</span>/3</span>
+                                    <button class="skill-upgrade-btn">Upgrade (1 Punkt)</button>
+                                </div>
+                            </div>
+                            
+                            <div class="skill-node" data-skill="criticalHit">
+                                <div class="skill-icon"><i class="fas fa-bullseye"></i></div>
+                                <div class="skill-info">
+                                    <h4>Kritischer Treffer</h4>
+                                    <p>10% Chance für 2x Schaden</p>
+                                    <span class="skill-level">Level: <span class="current-level">0</span>/3</span>
+                                    <button class="skill-upgrade-btn">Upgrade (1 Punkt)</button>
+                                </div>
+                            </div>
+                            
+                            <div class="skill-node" data-skill="armorPiercing">
+                                <div class="skill-icon"><i class="fas fa-shield-virus"></i></div>
+                                <div class="skill-info">
+                                    <h4>Rüstungsdurchbruch</h4>
+                                    <p>Ignoriert 25% Rüstung</p>
+                                    <span class="skill-level">Level: <span class="current-level">0</span>/2</span>
+                                    <button class="skill-upgrade-btn">Upgrade (1 Punkt)</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Economy Branch -->
+                    <div class="skill-branch economy-branch">
+                        <h3><i class="fas fa-coins"></i> Wirtschaft</h3>
+                        <div class="skill-nodes">
+                            <div class="skill-node" data-skill="extraGold">
+                                <div class="skill-icon"><i class="fas fa-dollar-sign"></i></div>
+                                <div class="skill-info">
+                                    <h4>Extra Gold</h4>
+                                    <p>+50% Gold pro Kill</p>
+                                    <span class="skill-level">Level: <span class="current-level">0</span>/3</span>
+                                    <button class="skill-upgrade-btn">Upgrade (1 Punkt)</button>
+                                </div>
+                            </div>
+                            
+                            <div class="skill-node" data-skill="cheaperTowers">
+                                <div class="skill-icon"><i class="fas fa-percentage"></i></div>
+                                <div class="skill-info">
+                                    <h4>Günstigere Tower</h4>
+                                    <p>-20% Tower Kosten</p>
+                                    <span class="skill-level">Level: <span class="current-level">0</span>/2</span>
+                                    <button class="skill-upgrade-btn">Upgrade (1 Punkt)</button>
+                                </div>
+                            </div>
+                            
+                            <div class="skill-node" data-skill="interestRate">
+                                <div class="skill-icon"><i class="fas fa-piggy-bank"></i></div>
+                                <div class="skill-info">
+                                    <h4>Zinssatz</h4>
+                                    <p>+1 Gold pro Welle pro 100 Gold</p>
+                                    <span class="skill-level">Level: <span class="current-level">0</span>/3</span>
+                                    <button class="skill-upgrade-btn">Upgrade (1 Punkt)</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Support Branch -->
+                    <div class="skill-branch support-branch">
+                        <h3><i class="fas fa-hands-helping"></i> Unterstützung</h3>
+                        <div class="skill-nodes">
+                            <div class="skill-node" data-skill="fasterShooting">
+                                <div class="skill-icon"><i class="fas fa-tachometer-alt"></i></div>
+                                <div class="skill-info">
+                                    <h4>Schnelleres Schießen</h4>
+                                    <p>+25% Feuerrate</p>
+                                    <span class="skill-level">Level: <span class="current-level">0</span>/3</span>
+                                    <button class="skill-upgrade-btn">Upgrade (1 Punkt)</button>
+                                </div>
+                            </div>
+                            
+                            <div class="skill-node" data-skill="longerRange">
+                                <div class="skill-icon"><i class="fas fa-expand-arrows-alt"></i></div>
+                                <div class="skill-info">
+                                    <h4>Längere Reichweite</h4>
+                                    <p>+20% Tower Reichweite</p>
+                                    <span class="skill-level">Level: <span class="current-level">0</span>/2</span>
+                                    <button class="skill-upgrade-btn">Upgrade (1 Punkt)</button>
+                                </div>
+                            </div>
+                            
+                            <div class="skill-node" data-skill="multiShot">
+                                <div class="skill-icon"><i class="fas fa-stream"></i></div>
+                                <div class="skill-info">
+                                    <h4>Mehrfachschuss</h4>
+                                    <p>20% Chance für 2 Projektile</p>
+                                    <span class="skill-level">Level: <span class="current-level">0</span>/2</span>
+                                    <button class="skill-upgrade-btn">Upgrade (1 Punkt)</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -14,6 +14,12 @@ class Game {
         this.initializeMaps();
         this.currentMapId = localStorage.getItem('rushRoyalSelectedMap') || 'classic';
         
+        // Initialize skill tree
+        this.initializeSkillTree();
+        
+        // Initialize fusion system
+        this.initializeFusionRecipes();
+        
         this.towers = [];
         this.enemies = [];
         this.projectiles = [];
@@ -35,6 +41,8 @@ class Game {
         this.fpsCounter = 0;
         this.lastFpsUpdate = 0;
         this.currentFps = 0;
+        this.fusionMode = false;
+        this.selectedTowerForFusion = null;
         this.particles = [];
         this.achievements = [];
         this.totalKills = 0;
@@ -283,6 +291,699 @@ class Game {
             notification.style.transform = 'translateX(400px)';
             setTimeout(() => notification.remove(), 500);
         }, 5000);
+    }
+
+    // Skill Tree System
+    initializeSkillTree() {
+        this.skillPoints = parseInt(localStorage.getItem('rushRoyalSkillPoints')) || 0;
+        
+        // Gib neuen Spielern 3 Start-Skill-Punkte
+        if (this.skillPoints === 0 && !localStorage.getItem('rushRoyalSkills')) {
+            this.skillPoints = 3;
+            localStorage.setItem('rushRoyalSkillPoints', '3');
+            console.log('New player detected - awarded 3 starting skill points');
+        }
+        
+        this.skills = this.loadSkills();
+        this.initializeSkillDefinitions();
+    }
+
+    initializeSkillDefinitions() {
+        this.skillDefinitions = {
+            // Damage Tree
+            increasedDamage: {
+                id: 'increasedDamage',
+                name: 'Erhöhter Schaden',
+                description: 'Alle Türme verursachen +20% Schaden',
+                tree: 'damage',
+                maxLevel: 3,
+                cost: (level) => level,
+                effect: (level) => ({ damageMultiplier: 1 + (level * 0.2) })
+            },
+            criticalHit: {
+                id: 'criticalHit',
+                name: 'Kritischer Treffer',
+                description: '10% Chance für 2x Schaden',
+                tree: 'damage',
+                maxLevel: 3,
+                cost: (level) => level,
+                effect: (level) => ({ critChance: level * 0.1, critMultiplier: 2.0 })
+            },
+            armorPiercing: {
+                id: 'armorPiercing',
+                name: 'Rüstungsdurchbruch',
+                description: 'Ignoriert 25% Rüstung',
+                tree: 'damage',
+                maxLevel: 2,
+                cost: (level) => level,
+                effect: (level) => ({ armorPiercing: level * 0.25 })
+            },
+            explosiveShots: {
+                id: 'explosiveShots',
+                name: 'Explosive Geschosse',
+                description: '+30% Splash-Schaden-Radius',
+                tree: 'damage',
+                maxLevel: 2,
+                cost: (level) => level,
+                effect: (level) => ({ splashRadius: 1 + (level * 0.3) })
+            },
+
+            // Economy Tree
+            extraGold: {
+                id: 'extraGold',
+                name: 'Extra Gold',
+                description: '+50% Gold pro Kill',
+                tree: 'economy',
+                maxLevel: 3,
+                cost: (level) => level,
+                effect: (level) => ({ goldMultiplier: 1 + (level * 0.5) })
+            },
+            cheaperTowers: {
+                id: 'cheaperTowers',
+                name: 'Günstigere Tower',
+                description: '-20% Tower Kosten',
+                tree: 'economy',
+                maxLevel: 2,
+                cost: (level) => level,
+                effect: (level) => ({ costReduction: level * 0.2 })
+            },
+            interestRate: {
+                id: 'interestRate',
+                name: 'Zinssatz',
+                description: '+1 Gold pro Welle pro 100 Gold',
+                tree: 'economy',
+                maxLevel: 3,
+                cost: (level) => level,
+                effect: (level) => ({ interestRate: level * 0.01 })
+            },
+            treasureHunter: {
+                id: 'treasureHunter',
+                name: 'Schatzjäger',
+                description: '15% Chance für +20 Bonus Gold pro Kill',
+                tree: 'economy',
+                maxLevel: 2,
+                cost: (level) => level,
+                effect: (level) => ({ treasureChance: level * 0.15, treasureAmount: 20 })
+            },
+
+            // Support Tree
+            fasterShooting: {
+                id: 'fasterShooting',
+                name: 'Schnelleres Schießen',
+                description: '+25% Feuerrate',
+                tree: 'support',
+                maxLevel: 3,
+                cost: (level) => level,
+                effect: (level) => ({ fireRateMultiplier: 1 + (level * 0.25) })
+            },
+            longerRange: {
+                id: 'longerRange',
+                name: 'Längere Reichweite',
+                description: '+20% Tower Reichweite',
+                tree: 'support',
+                maxLevel: 2,
+                cost: (level) => level,
+                effect: (level) => ({ rangeMultiplier: 1 + (level * 0.2) })
+            },
+            multiShot: {
+                id: 'multiShot',
+                name: 'Mehrfachschuss',
+                description: '20% Chance für 2 Projektile',
+                tree: 'support',
+                maxLevel: 2,
+                cost: (level) => level,
+                effect: (level) => ({ multiShotChance: level * 0.2 })
+            },
+            lifeSteal: {
+                id: 'lifeSteal',
+                name: 'Lebensentzug',
+                description: '10% Chance, +1 Leben bei Kill',
+                tree: 'support',
+                maxLevel: 2,
+                cost: (level) => level,
+                effect: (level) => ({ lifeStealChance: level * 0.1 })
+            },
+            efficientTowers: {
+                id: 'efficientTowers',
+                name: 'Effiziente Tower',
+                description: '+15% Tower-Verkaufswert',
+                tree: 'support',
+                maxLevel: 2,
+                cost: (level) => level,
+                effect: (level) => ({ sellValueBonus: level * 0.15 })
+            }
+        };
+    }
+
+    loadSkills() {
+        const defaultSkills = {};
+        Object.keys(this.skillDefinitions || {}).forEach(skillId => {
+            defaultSkills[skillId] = 0;
+        });
+
+        const saved = localStorage.getItem('rushRoyalSkills');
+        return saved ? { ...defaultSkills, ...JSON.parse(saved) } : defaultSkills;
+    }
+
+    saveSkills() {
+        localStorage.setItem('rushRoyalSkills', JSON.stringify(this.skills));
+        localStorage.setItem('rushRoyalSkillPoints', this.skillPoints.toString());
+    }
+
+    getSkillEffects() {
+        const effects = {
+            damageMultiplier: 1,
+            goldMultiplier: 1,
+            rangeMultiplier: 1,
+            fireRateMultiplier: 1,
+            costReduction: 0,
+            critChance: 0,
+            critMultiplier: 2.0,
+            armorPiercing: 0,
+            multiShotChance: 0,
+            interestRate: 0,
+            treasureChance: 0,
+            treasureAmount: 0,
+            splashRadius: 1,
+            lifeStealChance: 0,
+            sellValueBonus: 0
+        };
+
+        Object.entries(this.skills).forEach(([skillId, level]) => {
+            if (level > 0 && this.skillDefinitions[skillId]) {
+                const skillEffect = this.skillDefinitions[skillId].effect(level);
+                Object.assign(effects, skillEffect);
+            }
+        });
+
+        return effects;
+    }
+
+    earnSkillPoints(amount) {
+        this.skillPoints += amount;
+        localStorage.setItem('rushRoyalSkillPoints', this.skillPoints.toString());
+        this.saveSkills();
+        console.log(`Earned ${amount} skill points. Total: ${this.skillPoints}`);
+    }
+
+    checkWaveSkillPointRewards() {
+        let skillPointsEarned = 0;
+        let message = '';
+        
+        // 1 Skill-Punkt alle 5 Wellen
+        if (this.wave % 5 === 0) {
+            skillPointsEarned += 1;
+            message += `🌟 Welle ${this.wave} abgeschlossen! +1 Skill-Punkt für jede 5. Welle! `;
+        }
+        
+        // Bonus-Punkte für wichtige Meilensteine
+        if (this.wave === 10) {
+            skillPointsEarned += 1;
+            message += `🎯 Meilenstein erreicht! +1 Bonus Skill-Punkt für Welle 10! `;
+        } else if (this.wave === 20) {
+            skillPointsEarned += 2;
+            message += `🏆 Großer Meilenstein! +2 Bonus Skill-Punkte für Welle 20! `;
+        } else if (this.wave === 30) {
+            skillPointsEarned += 3;
+            message += `👑 Meister-Level! +3 Bonus Skill-Punkte für Welle 30! `;
+        }
+        
+        // Boss-Wellen geben zusätzliche Skill-Punkte
+        if (this.wave % 10 === 0 && this.wave > 0) {
+            skillPointsEarned += 1;
+            message += `💀 Boss-Welle besiegt! +1 Skill-Punkt! `;
+        }
+        
+        if (skillPointsEarned > 0) {
+            this.earnSkillPoints(skillPointsEarned);
+            this.showMessage(message + `Gesamt: ${skillPointsEarned} Skill-Punkt${skillPointsEarned > 1 ? 'e' : ''} erhalten!`, 'success');
+            console.log(`Earned ${skillPointsEarned} skill points for completing wave ${this.wave}`);
+        }
+    }
+
+    checkKillSkillPointRewards() {
+        // 1 Skill-Punkt alle 50 Kills
+        const killMilestone = 50;
+        const totalKills = this.statistics.totalKills + this.sessionStats.kills;
+        const lastMilestone = Math.floor((totalKills - 1) / killMilestone) * killMilestone;
+        const currentMilestone = Math.floor(totalKills / killMilestone) * killMilestone;
+        
+        if (currentMilestone > lastMilestone && totalKills >= killMilestone) {
+            this.earnSkillPoints(1);
+            this.showMessage(`⚔️ ${totalKills} Kills erreicht! +1 Skill-Punkt erhalten!`, 'success');
+            console.log(`Earned 1 skill point for ${totalKills} total kills`);
+        }
+    }
+
+    awardGameOverSkillPoints() {
+        let skillPointsEarned = 0;
+        let message = '';
+        
+        // Basis-Belohnung für erreichte Welle
+        if (this.wave >= 5) {
+            skillPointsEarned += Math.floor(this.wave / 5);
+            message += `📊 ${Math.floor(this.wave / 5)} Skill-Punkt${Math.floor(this.wave / 5) > 1 ? 'e' : ''} für erreichte Welle ${this.wave}! `;
+        }
+        
+        // Bonus für hohe Wellen
+        if (this.wave >= 20) {
+            skillPointsEarned += 2;
+            message += `🏆 +2 Bonus-Punkte für Welle 20+! `;
+        } else if (this.wave >= 15) {
+            skillPointsEarned += 1;
+            message += `🎯 +1 Bonus-Punkt für Welle 15+! `;
+        }
+        
+        // Bonus für hohe Punktzahl
+        if (this.score >= 10000) {
+            skillPointsEarned += 1;
+            message += `⭐ +1 Punkt für hohe Punktzahl! `;
+        }
+        
+        // Mindestens 1 Skill-Punkt für jedes beendete Spiel
+        if (skillPointsEarned === 0) {
+            skillPointsEarned = 1;
+            message = `💪 +1 Skill-Punkt für den Versuch! `;
+        }
+        
+        if (skillPointsEarned > 0) {
+            this.earnSkillPoints(skillPointsEarned);
+            this.showMessage(message + `Gesamt: ${skillPointsEarned} Skill-Punkt${skillPointsEarned > 1 ? 'e' : ''} erhalten!`, 'success');
+            console.log(`Earned ${skillPointsEarned} skill points for game over at wave ${this.wave}`);
+        }
+    }
+
+    canUpgradeSkill(skillId) {
+        const skill = this.skillDefinitions[skillId];
+        if (!skill) return false;
+        
+        const currentLevel = this.skills[skillId] || 0;
+        if (currentLevel >= skill.maxLevel) return false;
+        
+        const cost = skill.cost(currentLevel + 1);
+        if (this.skillPoints < cost) return false;
+        
+        // Check prerequisites
+        if (skill.prerequisite) {
+            const [prereqSkill, reqLevel] = skill.prerequisite;
+            if ((this.skills[prereqSkill] || 0) < reqLevel) return false;
+        }
+        
+        return true;
+    }
+
+    upgradeSkill(skillId) {
+        if (!this.canUpgradeSkill(skillId)) return false;
+        
+        const skill = this.skillDefinitions[skillId];
+        const currentLevel = this.skills[skillId] || 0;
+        const cost = skill.cost(currentLevel + 1);
+        
+        this.skillPoints -= cost;
+        this.skills[skillId] = currentLevel + 1;
+        this.saveSkills();
+        
+        return true;
+    }
+
+    // Tower Fusion System
+    initializeFusionRecipes() {
+        this.fusionRecipes = {
+            // Basic fusions with existing tower types
+            'basic+basic': {
+                result: 'enhanced_basic',
+                name: 'Verstärkter Turm',
+                description: 'Doppelter Schaden, erhöhte Reichweite'
+            },
+            'basic+ice': {
+                result: 'frost_basic',
+                name: 'Frost-Grundturm',
+                description: 'Verlangsamt Feinde beim Treffen'
+            },
+            'sniper+lightning': {
+                result: 'arcane_sniper',
+                name: 'Arkaner Scharfschütze',
+                description: 'Durchschlägt Schilde und trifft fliegende Feinde'
+            },
+            'fire+ice': {
+                result: 'frost_cannon',
+                name: 'Dampfkanone',
+                description: 'Explosionen verlangsamen und verbrennen Feinde'
+            },
+            'lightning+poison': {
+                result: 'void_mage',
+                name: 'Leermagier',
+                description: 'Vergiftet und schwächt mehrere Feinde'
+            },
+            'basic+sniper': {
+                result: 'rapid_sniper',
+                name: 'Schnellfeuer-Scharfschütze',
+                description: 'Hohe Feuerrate mit präzisen Schüssen'
+            },
+            'fire+poison': {
+                result: 'toxic_cannon',
+                name: 'Giftkanone',
+                description: 'Vergiftet Feinde in großem Radius'
+            },
+            'tesla+ice': {
+                result: 'freeze_tesla',
+                name: 'Gefriergewitter',
+                description: 'Elektrizität verlangsamt und springt zwischen Feinden'
+            },
+            'tesla+fire': {
+                result: 'plasma_tower',
+                name: 'Plasmaturm',
+                description: 'Hochenergie-Entladungen mit Flächenschaden'
+            }
+        };
+    }
+
+    toggleFusionMode() {
+        this.fusionMode = !this.fusionMode;
+        this.selectedTowerForFusion = null;
+        
+        const fusionBtn = document.getElementById('fusionBtn');
+        if (fusionBtn) {
+            fusionBtn.classList.toggle('active', this.fusionMode);
+            const buttonText = fusionBtn.querySelector('span');
+            if (buttonText) {
+                buttonText.textContent = this.fusionMode ? 'Fusion beenden' : 'Tower Fusion';
+            }
+        }
+        
+        this.showMessage(this.fusionMode ? 'Fusion-Modus aktiviert! Wähle zwei Türme zum Fusionieren.' : 'Fusion-Modus deaktiviert.', 'info');
+    }
+
+    attemptTowerFusion(tower1, tower2) {
+        const recipe1 = `${tower1.type}+${tower2.type}`;
+        const recipe2 = `${tower2.type}+${tower1.type}`;
+        
+        console.log(`Trying fusion: ${recipe1} or ${recipe2}`);
+        console.log('Available recipes:', Object.keys(this.fusionRecipes));
+        
+        const fusion = this.fusionRecipes[recipe1] || this.fusionRecipes[recipe2];
+        
+        if (!fusion) {
+            console.log(`No fusion found for ${recipe1} or ${recipe2}`);
+            this.showMessage(`Diese Türme können nicht fusioniert werden! (${tower1.type} + ${tower2.type})`, 'warning');
+            return false;
+        }
+        
+        // Check if towers are adjacent (within 100 pixels)
+        const distance = Math.sqrt((tower1.x - tower2.x) ** 2 + (tower1.y - tower2.y) ** 2);
+        if (distance > 100) {
+            this.showMessage('Türme müssen benachbart sein für die Fusion!', 'warning');
+            return false;
+        }
+        
+        // Create fused tower
+        const fusedTower = this.createFusedTower(tower1, tower2, fusion);
+        
+        // Remove original towers
+        this.towers = this.towers.filter(t => t !== tower1 && t !== tower2);
+        
+        // Add fused tower
+        this.towers.push(fusedTower);
+        
+        // Reset fusion mode
+        this.fusionMode = false;
+        this.selectedTowerForFusion = null;
+        const fusionBtn = document.getElementById('fusionBtn');
+        if (fusionBtn) {
+            fusionBtn.classList.remove('active');
+            const buttonText = fusionBtn.querySelector('span');
+            if (buttonText) {
+                buttonText.textContent = 'Tower Fusion';
+            }
+        }
+        
+        this.showMessage(`${fusion.name} erstellt!`, 'success');
+        this.updateUI();
+        
+        return true;
+    }
+
+    createFusedTower(tower1, tower2, fusion) {
+        // Position between the two towers
+        const x = (tower1.x + tower2.x) / 2;
+        const y = (tower1.y + tower2.y) / 2;
+        
+        const fusedTower = new Tower(x, y, fusion.result);
+        
+        // Inherit combined stats
+        fusedTower.damage = tower1.damage + tower2.damage;
+        fusedTower.range = Math.max(tower1.range, tower2.range) * 1.2;
+        fusedTower.fireRate = Math.min(tower1.fireRate, tower2.fireRate) * 0.8;
+        fusedTower.value = tower1.value + tower2.value;
+        fusedTower.level = Math.max(tower1.level, tower2.level);
+        
+        // Inherit special properties from both towers
+        this.inheritTowerProperties(fusedTower, tower1, tower2);
+        
+        // Apply fusion-specific bonuses
+        this.applyFusionBonuses(fusedTower, fusion);
+        
+        return fusedTower;
+    }
+    
+    inheritTowerProperties(fusedTower, tower1, tower2) {
+        // Combine special effects from both towers
+        const properties = {
+            slow: Math.max(tower1.slow || 0, tower2.slow || 0),
+            splash: Math.max(tower1.splash || 0, tower2.splash || 0),
+            chain: Math.max(tower1.chain || 0, tower2.chain || 0),
+            poison: Math.max(tower1.poison || 0, tower2.poison || 0),
+            stun: Math.max(tower1.stun || 0, tower2.stun || 0)
+        };
+        
+        // Apply inherited properties
+        if (properties.slow > 0) {
+            fusedTower.slow = properties.slow;
+            fusedTower.slowEffect = properties.slow;
+            console.log(`Inherited slow effect: ${properties.slow}`);
+        }
+        
+        if (properties.splash > 0) {
+            fusedTower.splash = properties.splash;
+            fusedTower.splashRadius = properties.splash;
+            console.log(`Inherited splash radius: ${properties.splash}`);
+        }
+        
+        if (properties.chain > 0) {
+            fusedTower.chain = properties.chain;
+            console.log(`Inherited chain lightning: ${properties.chain}`);
+        }
+        
+        if (properties.poison > 0) {
+            fusedTower.poison = properties.poison;
+            fusedTower.poisonDamage = properties.poison;
+            console.log(`Inherited poison damage: ${properties.poison}`);
+        }
+        
+        if (properties.stun > 0) {
+            fusedTower.stun = properties.stun;
+            console.log(`Inherited stun duration: ${properties.stun}`);
+        }
+        
+        // Determine combined damage type
+        const damageTypes = [];
+        if (tower1.type === 'ice' || tower2.type === 'ice') damageTypes.push('ice');
+        if (tower1.type === 'fire' || tower2.type === 'fire') damageTypes.push('fire');
+        if (tower1.type === 'lightning' || tower2.type === 'lightning') damageTypes.push('lightning');
+        if (tower1.type === 'poison' || tower2.type === 'poison') damageTypes.push('poison');
+        if (tower1.type === 'tesla' || tower2.type === 'tesla') damageTypes.push('lightning');
+        
+        if (damageTypes.length > 0) {
+            fusedTower.damageType = damageTypes[0]; // Primary damage type
+            fusedTower.secondaryDamageType = damageTypes[1] || null; // Secondary if exists
+            console.log(`Damage type: ${fusedTower.damageType}${fusedTower.secondaryDamageType ? ' + ' + fusedTower.secondaryDamageType : ''}`);
+        }
+    }
+    
+    applyFusionBonuses(fusedTower, fusion) {
+        // Apply specific fusion bonuses on top of inherited properties
+        switch (fusion.result) {
+            case 'enhanced_basic':
+                fusedTower.damage *= 2;
+                fusedTower.range *= 1.5;
+                break;
+            case 'frost_basic':
+                // Additional slow effect on top of inherited ice properties
+                if (fusedTower.slowEffect) {
+                    fusedTower.slowEffect = Math.min(0.8, fusedTower.slowEffect + 0.2);
+                } else {
+                    fusedTower.slowEffect = 0.3;
+                }
+                break;
+            case 'arcane_sniper':
+                fusedTower.canHitFlying = true;
+                fusedTower.pierceShield = true;
+                break;
+            case 'frost_cannon':
+                // Enhance inherited properties
+                if (fusedTower.splashRadius) {
+                    fusedTower.splashRadius = Math.max(fusedTower.splashRadius, 60);
+                } else {
+                    fusedTower.splashRadius = 60;
+                }
+                if (fusedTower.slowEffect) {
+                    fusedTower.slowEffect = Math.min(0.8, fusedTower.slowEffect + 0.2);
+                } else {
+                    fusedTower.slowEffect = 0.5;
+                }
+                break;
+            case 'void_mage':
+                fusedTower.multiTarget = 3;
+                // Enhance poison if inherited
+                if (fusedTower.poisonDamage) {
+                    fusedTower.poisonDamage = Math.max(fusedTower.poisonDamage, 5);
+                } else {
+                    fusedTower.poisonDamage = 5;
+                }
+                break;
+            case 'rapid_sniper':
+                fusedTower.fireRate *= 0.5;
+                fusedTower.accuracy = 0.95;
+                break;
+            case 'toxic_cannon':
+                // Enhance inherited properties
+                if (fusedTower.splashRadius) {
+                    fusedTower.splashRadius = Math.max(fusedTower.splashRadius, 80);
+                } else {
+                    fusedTower.splashRadius = 80;
+                }
+                if (fusedTower.poisonDamage) {
+                    fusedTower.poisonDamage = Math.max(fusedTower.poisonDamage, 8);
+                } else {
+                    fusedTower.poisonDamage = 8;
+                }
+                break;
+            case 'freeze_tesla':
+                // Enhance inherited properties
+                if (fusedTower.chain) {
+                    fusedTower.chain = Math.max(fusedTower.chain, 4);
+                } else {
+                    fusedTower.chain = 4;
+                }
+                if (fusedTower.slowEffect) {
+                    fusedTower.slowEffect = Math.min(0.7, fusedTower.slowEffect + 0.2);
+                } else {
+                    fusedTower.slowEffect = 0.3;
+                }
+                break;
+            case 'plasma_tower':
+                if (fusedTower.splashRadius) {
+                    fusedTower.splashRadius = Math.max(fusedTower.splashRadius, 70);
+                } else {
+                    fusedTower.splashRadius = 70;
+                }
+                fusedTower.damage *= 1.5;
+                break;
+        }
+        
+        // Log final properties
+        console.log(`Fused tower ${fusion.result} created with properties:`, {
+            damage: fusedTower.damage,
+            range: fusedTower.range,
+            slowEffect: fusedTower.slowEffect,
+            splashRadius: fusedTower.splashRadius,
+            chain: fusedTower.chain,
+            poisonDamage: fusedTower.poisonDamage,
+            stun: fusedTower.stun,
+            damageType: fusedTower.damageType,
+            secondaryDamageType: fusedTower.secondaryDamageType
+        });
+    }
+
+    // Skill Tree Management
+    openSkillTree() {
+        this.updateSkillTreeUI();
+        document.getElementById('skillTreeModal').style.display = 'flex';
+    }
+
+    closeSkillTree() {
+        document.getElementById('skillTreeModal').style.display = 'none';
+    }
+
+    updateSkillTreeUI() {
+        // Update skill points display
+        document.getElementById('skillPointsDisplay').textContent = this.skillPoints;
+        
+        // Update all skill nodes
+        const skillNodes = document.querySelectorAll('.skill-node');
+        skillNodes.forEach(node => {
+            const skillName = node.dataset.skill;
+            const skill = this.skillDefinitions[skillName];
+            const currentLevel = this.skills[skillName] || 0;
+            
+            if (skill) {
+                const levelSpan = node.querySelector('.current-level');
+                const upgradeBtn = node.querySelector('.skill-upgrade-btn');
+                
+                if (levelSpan) {
+                    levelSpan.textContent = currentLevel;
+                }
+                
+                if (upgradeBtn) {
+                    // Update button state
+                    const canUpgrade = this.skillPoints > 0 && currentLevel < skill.maxLevel;
+                    upgradeBtn.disabled = !canUpgrade;
+                    
+                    if (currentLevel >= skill.maxLevel) {
+                        node.classList.add('maxed');
+                        upgradeBtn.textContent = 'Max Level';
+                    } else {
+                        node.classList.remove('maxed');
+                        upgradeBtn.textContent = `Upgrade (1 Punkt)`;
+                    }
+                }
+            } else {
+                console.warn(`Skill definition not found: ${skillName}`);
+            }
+        });
+        
+        // Add click listeners to upgrade buttons
+        const upgradeButtons = document.querySelectorAll('.skill-upgrade-btn');
+        upgradeButtons.forEach(btn => {
+            // Remove existing listeners
+            btn.replaceWith(btn.cloneNode(true));
+        });
+        
+        // Re-add listeners to new buttons
+        document.querySelectorAll('.skill-upgrade-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const skillNode = e.target.closest('.skill-node');
+                const skillName = skillNode.dataset.skill;
+                this.upgradeSkill(skillName);
+            });
+        });
+    }
+
+    upgradeSkill(skillName) {
+        const skill = this.skillDefinitions[skillName];
+        const currentLevel = this.skills[skillName] || 0;
+        
+        if (!skill || currentLevel >= skill.maxLevel || this.skillPoints <= 0) {
+            console.log(`Cannot upgrade ${skillName}: skill=${!!skill}, currentLevel=${currentLevel}, maxLevel=${skill?.maxLevel}, skillPoints=${this.skillPoints}`);
+            return;
+        }
+        
+        // Upgrade the skill
+        this.skills[skillName] = currentLevel + 1;
+        this.skillPoints--;
+        
+        // Save progress
+        this.saveSkills();
+        localStorage.setItem('rushRoyalSkillPoints', this.skillPoints.toString());
+        
+        // Update UI
+        this.updateSkillTreeUI();
+        
+        // Show upgrade message
+        this.showMessage(`${skill.name} auf Level ${this.skills[skillName]} verbessert!`);
+        
+        console.log(`Upgraded ${skillName} to level ${this.skills[skillName]}`);
     }
 
     // Statistics Management
@@ -635,6 +1336,44 @@ class Game {
             this.sellTower();
         });
         
+        // Fusion Button Event Listener (using existing HTML button)
+        const fusionButton = document.getElementById('fusionBtn');
+        if (fusionButton) {
+            fusionButton.addEventListener('click', () => {
+                console.log('Fusion button clicked');
+                this.toggleFusionMode();
+            });
+        } else {
+            console.error('Fusion button not found!');
+        }
+        
+        // Skill Tree Button Event Listener
+        const skillTreeButton = document.getElementById('skillTreeBtn');
+        if (skillTreeButton) {
+            skillTreeButton.addEventListener('click', () => {
+                console.log('Skill tree button clicked');
+                this.openSkillTree();
+            });
+        } else {
+            console.error('Skill tree button not found!');
+        }
+        
+        // Skill Tree Modal Event Listeners
+        const skillTreeCloseButton = document.getElementById('skillTreeClose');
+        if (skillTreeCloseButton) {
+            skillTreeCloseButton.addEventListener('click', () => {
+                this.closeSkillTree();
+            });
+        }
+        
+        // Close skill tree when clicking background
+        const skillTreeBackground = document.querySelector('.skill-tree-background');
+        if (skillTreeBackground) {
+            skillTreeBackground.addEventListener('click', () => {
+                this.closeSkillTree();
+            });
+        }
+        
         document.getElementById('upgradeClose').addEventListener('click', () => {
             this.hideTowerUpgrade();
         });
@@ -693,6 +1432,12 @@ class Game {
                     : 'fas fa-question-circle';
             });
         }
+        
+        // Debug: Check if buttons exist
+        console.log('Event listeners setup complete');
+        console.log('Fusion button exists:', !!document.getElementById('fusionBtn'));
+        console.log('Skill tree button exists:', !!document.getElementById('skillTreeBtn'));
+        console.log('Skill tree modal exists:', !!document.getElementById('skillTreeModal'));
     }
     
     placeTower(x, y) {
@@ -732,6 +1477,43 @@ class Game {
     
     selectTower(x, y) {
         console.log(`Attempting to select tower at: ${x}, ${y}`);
+        
+        // Fusion Mode Handler
+        if (this.fusionMode) {
+            // Gehe durch alle Tower in umgekehrter Reihenfolge
+            for (let i = this.towers.length - 1; i >= 0; i--) {
+                const tower = this.towers[i];
+                const dist = Math.sqrt((x - tower.x) ** 2 + (y - tower.y) ** 2);
+                
+                if (dist <= tower.size + 10) {
+                    if (!this.selectedTowerForFusion) {
+                        // Ersten Tower für Fusion auswählen
+                        this.selectedTowerForFusion = tower;
+                        console.log(`First tower selected for fusion: ${tower.type}`);
+                        this.showMessage(`${tower.type} ausgewählt. Wähle einen zweiten Tower für die Fusion.`);
+                        return;
+                    } else {
+                        // Zweiten Tower für Fusion auswählen
+                        if (tower === this.selectedTowerForFusion) {
+                            this.showMessage('Du kannst nicht denselben Tower mit sich selbst fusionieren!');
+                            return;
+                        }
+                        console.log(`Attempting fusion between ${this.selectedTowerForFusion.type} and ${tower.type}`);
+                        this.attemptTowerFusion(this.selectedTowerForFusion, tower);
+                        return;
+                    }
+                }
+            }
+            
+            // Kein Tower gefunden - Fusion Mode verlassen wenn bereits ein Tower ausgewählt
+            if (this.selectedTowerForFusion) {
+                this.showMessage('Fusion abgebrochen.');
+                this.selectedTowerForFusion = null;
+            }
+            return;
+        }
+        
+        // Normaler Tower Selection Mode
         this.selectedTower = null;
         
         // Gehe durch alle Tower in umgekehrter Reihenfolge (zuletzt gezeichnete zuerst)
@@ -801,11 +1583,29 @@ class Game {
             sniper: 120,
             tesla: 150
         };
-        return costs[type];
+        
+        const baseCost = costs[type];
+        const skillEffects = this.getSkillEffects();
+        const finalCost = Math.floor(baseCost * (1 - skillEffects.costReduction));
+        
+        return finalCost;
     }
     
     startWave() {
         if (this.waveInProgress) return;
+        
+        // Zinssystem: Geld basierend auf aktuellem Geld verdienen
+        if (this.wave > 1) { // Nicht bei der ersten Welle
+            const skillEffects = this.getSkillEffects();
+            if (skillEffects.interestRate > 0) {
+                const interestGold = Math.floor(this.money * skillEffects.interestRate);
+                if (interestGold > 0) {
+                    this.money += interestGold;
+                    this.goldEarned += interestGold;
+                    console.log(`Zinsen erhalten: ${interestGold} Gold (${skillEffects.interestRate * 100}% von ${this.money - interestGold})`);
+                }
+            }
+        }
         
         // Boss Wave Check (jede 5. Welle)
         this.bossWave = this.wave % 5 === 0;
@@ -845,23 +1645,33 @@ class Game {
         if (this.bossWave) {
             const rand = Math.random();
             if (rand < 0.6) return 'boss';
-            if (rand < 0.85) return 'tank';
+            if (rand < 0.75) return 'tank';
+            if (rand < 0.85) return 'shielded';
             if (rand < 0.95) return 'fast';
             return 'basic';
         }
         
         // Progressive Wahrscheinlichkeiten basierend auf Welle
-        const waveMultiplier = Math.min(this.wave / 10, 2); // Max 2x Multiplier bei Welle 20+
+        const waveMultiplier = Math.min(this.wave / 10, 2);
         
-        const fastChance = Math.min(0.15 + (this.wave * 0.03), 0.5); // Startet bei 15%, max 50%
-        const tankChance = Math.max(0, Math.min(0.05 + (this.wave * 0.025), 0.35)); // Startet bei Welle 1 mit 5%, max 35%
-        const bossChance = Math.max(0, Math.min((this.wave - 4) * 0.015, 0.2)); // Startet bei Welle 5, max 20%
+        const fastChance = Math.min(0.15 + (this.wave * 0.03), 0.4);
+        const tankChance = Math.max(0, Math.min(0.05 + (this.wave * 0.025), 0.3));
+        const bossChance = Math.max(0, Math.min((this.wave - 4) * 0.015, 0.15));
+        const flyingChance = Math.max(0, Math.min((this.wave - 6) * 0.02, 0.2));
+        const shieldedChance = Math.max(0, Math.min((this.wave - 8) * 0.015, 0.15));
+        const splitterChance = Math.max(0, Math.min((this.wave - 10) * 0.01, 0.1));
+        const teleporterChance = Math.max(0, Math.min((this.wave - 12) * 0.008, 0.08));
         
         const rand = Math.random();
+        let cumulative = 0;
         
-        if (this.wave >= 5 && rand < bossChance) return 'boss';
-        if (this.wave >= 2 && rand < bossChance + tankChance) return 'tank';
-        if (this.wave >= 2 && rand < bossChance + tankChance + fastChance) return 'fast';
+        if (this.wave >= 12 && rand < (cumulative += teleporterChance)) return 'teleporter';
+        if (this.wave >= 10 && rand < (cumulative += splitterChance)) return 'splitter';
+        if (this.wave >= 8 && rand < (cumulative += shieldedChance)) return 'shielded';
+        if (this.wave >= 6 && rand < (cumulative += flyingChance)) return 'flying';
+        if (this.wave >= 5 && rand < (cumulative += bossChance)) return 'boss';
+        if (this.wave >= 2 && rand < (cumulative += tankChance)) return 'tank';
+        if (this.wave >= 2 && rand < (cumulative += fastChance)) return 'fast';
         
         return 'basic';
     }
@@ -994,15 +1804,19 @@ class Game {
             <div class="upgrade-stats">
                 <div class="stat-row">
                     <span class="stat-name"><i class="fas fa-sword"></i> Schaden:</span>
-                    <span class="stat-value">${tower.damage}</span>
+                    <span class="stat-value">${this.getEffectiveTowerDamage(tower)}</span>
                 </div>
                 <div class="stat-row">
                     <span class="stat-name"><i class="fas fa-crosshairs"></i> Reichweite:</span>
-                    <span class="stat-value">${tower.range}</span>
+                    <span class="stat-value">${this.getEffectiveTowerRange(tower)}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-name"><i class="fas fa-tachometer-alt"></i> Feuerrate:</span>
+                    <span class="stat-value">${this.getEffectiveTowerFireRate(tower)}</span>
                 </div>
                 <div class="stat-row">
                     <span class="stat-name"><i class="fas fa-coins"></i> Verkaufswert:</span>
-                    <span class="stat-value">${Math.floor(tower.value * 0.7)}G</span>
+                    <span class="stat-value">${this.getEffectiveSellValue(tower)}G</span>
                 </div>
                 ${this.getTowerSpecialStats(tower)}
             </div>
@@ -1023,12 +1837,26 @@ class Game {
         upgradeDiv.addEventListener('click', handleOutsideClick);
         
         const upgradeBtn = document.getElementById('upgradeBtn');
-        const upgradeCost = Math.floor(tower.value * 0.5);
-        upgradeBtn.innerHTML = `<i class="fas fa-arrow-up"></i><span>Upgrade (${upgradeCost}G)</span>`;
-        upgradeBtn.disabled = this.money < upgradeCost;
+        const baseUpgradeCost = Math.floor(tower.value * 0.5);
+        const actualUpgradeCost = this.getUpgradeCost(baseUpgradeCost);
+        
+        const skillEffects = this.getSkillEffects();
+        if (skillEffects.costReduction > 0 && actualUpgradeCost < baseUpgradeCost) {
+            upgradeBtn.innerHTML = `<i class="fas fa-arrow-up"></i><span>Upgrade (<span class="original-cost">${baseUpgradeCost}</span> → ${actualUpgradeCost}G)</span>`;
+        } else {
+            upgradeBtn.innerHTML = `<i class="fas fa-arrow-up"></i><span>Upgrade (${actualUpgradeCost}G)</span>`;
+        }
+        upgradeBtn.disabled = this.money < actualUpgradeCost;
         
         const sellBtn = document.getElementById('sellBtn');
-        sellBtn.innerHTML = `<i class="fas fa-trash"></i><span>Verkaufen (${Math.floor(tower.value * 0.7)}G)</span>`;
+        const baseSellValue = Math.floor(tower.value * 0.7);
+        const actualSellValue = Math.floor(baseSellValue * (1 + skillEffects.sellValueBonus));
+        
+        if (skillEffects.sellValueBonus > 0) {
+            sellBtn.innerHTML = `<i class="fas fa-trash"></i><span>Verkaufen (<span class="original-cost">${baseSellValue}</span> → ${actualSellValue}G)</span>`;
+        } else {
+            sellBtn.innerHTML = `<i class="fas fa-trash"></i><span>Verkaufen (${actualSellValue}G)</span>`;
+        }
     }
     
     getTowerIcon(type) {
@@ -1087,6 +1915,49 @@ class Game {
                 </div>`;
         }
         
+        // Skill-Effekte hinzufügen
+        const skillEffects = this.getSkillEffects();
+        
+        if (skillEffects.critChance > 0) {
+            specialStats += `
+                <div class="stat-row skill-effect">
+                    <span class="stat-name"><i class="fas fa-star"></i> Kritische Treffer:</span>
+                    <span class="stat-value">${Math.round(skillEffects.critChance * 100)}% (${skillEffects.critMultiplier}x)</span>
+                </div>`;
+        }
+        
+        if (skillEffects.multiShotChance > 0) {
+            specialStats += `
+                <div class="stat-row skill-effect">
+                    <span class="stat-name"><i class="fas fa-bullseye"></i> Mehrfachschuss:</span>
+                    <span class="stat-value">${Math.round(skillEffects.multiShotChance * 100)}%</span>
+                </div>`;
+        }
+        
+        if (skillEffects.armorPiercing > 0) {
+            specialStats += `
+                <div class="stat-row skill-effect">
+                    <span class="stat-name"><i class="fas fa-shield"></i> Rüstungsdurchbruch:</span>
+                    <span class="stat-value">${Math.round(skillEffects.armorPiercing * 100)}%</span>
+                </div>`;
+        }
+        
+        if (skillEffects.splashRadius > 1 && (tower.type === 'fire' || tower.splash)) {
+            specialStats += `
+                <div class="stat-row skill-effect">
+                    <span class="stat-name"><i class="fas fa-bomb"></i> Splash-Radius:</span>
+                    <span class="stat-value">+${Math.round((skillEffects.splashRadius - 1) * 100)}%</span>
+                </div>`;
+        }
+        
+        if (skillEffects.lifeStealChance > 0) {
+            specialStats += `
+                <div class="stat-row skill-effect">
+                    <span class="stat-name"><i class="fas fa-heart"></i> Lebensentzug:</span>
+                    <span class="stat-value">${Math.round(skillEffects.lifeStealChance * 100)}%</span>
+                </div>`;
+        }
+        
         return specialStats;
     }
     
@@ -1104,16 +1975,17 @@ class Game {
     upgradeTower() {
         if (!this.selectedTower) return;
         
-        const upgradeCost = Math.floor(this.selectedTower.value * 0.5);
-        if (this.money >= upgradeCost) {
-            this.money -= upgradeCost;
+        const baseUpgradeCost = Math.floor(this.selectedTower.value * 0.5);
+        const actualUpgradeCost = this.getUpgradeCost(baseUpgradeCost);
+        if (this.money >= actualUpgradeCost) {
+            this.money -= actualUpgradeCost;
             this.selectedTower.upgrade();
             
             // Update statistics
             this.sessionStats.upgrades++;
-            this.sessionStats.goldSpent += upgradeCost;
+            this.sessionStats.goldSpent += actualUpgradeCost;
             this.updateStatistic('upgrades', 1);
-            this.updateStatistic('goldSpent', upgradeCost);
+            this.updateStatistic('goldSpent', actualUpgradeCost);
             
             this.updateUI();
             this.showTowerUpgrade(this.selectedTower);
@@ -1123,7 +1995,9 @@ class Game {
     sellTower() {
         if (!this.selectedTower) return;
         
-        const sellValue = Math.floor(this.selectedTower.value * 0.7);
+        const skillEffects = this.getSkillEffects();
+        const baseSellValue = Math.floor(this.selectedTower.value * 0.7);
+        const sellValue = Math.floor(baseSellValue * (1 + skillEffects.sellValueBonus));
         this.money += sellValue;
         
         // Update statistics
@@ -1136,6 +2010,59 @@ class Game {
         this.selectedTower = null;
         this.hideTowerUpgrade();
         this.updateUI();
+    }
+    
+    getEffectiveTowerDamage(tower) {
+        const skillEffects = this.getSkillEffects();
+        const baseDamage = tower.damage;
+        const effectiveDamage = Math.floor(baseDamage * skillEffects.damageMultiplier);
+        
+        if (skillEffects.damageMultiplier > 1) {
+            return `${baseDamage} → ${effectiveDamage} (+${Math.round((skillEffects.damageMultiplier - 1) * 100)}%)`;
+        }
+        return `${baseDamage}`;
+    }
+    
+    getEffectiveTowerRange(tower) {
+        const skillEffects = this.getSkillEffects();
+        const baseRange = tower.range;
+        const effectiveRange = Math.floor(baseRange * skillEffects.rangeMultiplier);
+        
+        if (skillEffects.rangeMultiplier > 1) {
+            return `${baseRange} → ${effectiveRange} (+${Math.round((skillEffects.rangeMultiplier - 1) * 100)}%)`;
+        }
+        return `${baseRange}`;
+    }
+    
+    getEffectiveTowerFireRate(tower) {
+        const skillEffects = this.getSkillEffects();
+        const baseSpeed = tower.speed; // Millisekunden zwischen Schüssen
+        const effectiveSpeed = Math.floor(baseSpeed / skillEffects.fireRateMultiplier);
+        
+        if (skillEffects.fireRateMultiplier > 1) {
+            // Feuerrate = 1 / (speed in seconds) = 1000 / speed_in_ms
+            const baseRate = (1000 / baseSpeed).toFixed(1);
+            const effectiveRate = (1000 / effectiveSpeed).toFixed(1);
+            return `${baseRate} → ${effectiveRate}/s (+${Math.round((skillEffects.fireRateMultiplier - 1) * 100)}%)`;
+        }
+        const rate = (1000 / baseSpeed).toFixed(1);
+        return `${rate}/s`;
+    }
+    
+    getEffectiveSellValue(tower) {
+        const skillEffects = this.getSkillEffects();
+        const baseSellValue = Math.floor(tower.value * 0.7);
+        const effectiveSellValue = Math.floor(baseSellValue * (1 + skillEffects.sellValueBonus));
+        
+        if (skillEffects.sellValueBonus > 0) {
+            return `${baseSellValue} → ${effectiveSellValue} (+${Math.round(skillEffects.sellValueBonus * 100)}%)`;
+        }
+        return `${baseSellValue}`;
+    }
+    
+    getUpgradeCost(baseCost) {
+        const skillEffects = this.getSkillEffects();
+        return Math.floor(baseCost * (1 - skillEffects.costReduction));
     }
     
     toggleSpeed() {
@@ -1243,9 +2170,13 @@ class Game {
     }
     
     goldRush() {
-        this.money += 100;
-        this.goldEarned += 100;
-        this.showMessage('+100 Gold Rush!', 'success');
+        const skillEffects = this.getSkillEffects();
+        const baseGold = 100;
+        const goldWithBonus = Math.floor(baseGold * skillEffects.goldMultiplier);
+        
+        this.money += goldWithBonus;
+        this.goldEarned += goldWithBonus;
+        this.showMessage(`+${goldWithBonus} Gold Rush!`, 'success');
         this.checkAchievements();
     }
     
@@ -1354,9 +2285,11 @@ class Game {
         
         switch(powerUpType) {
             case 'money':
-                this.money += 50;
-                this.goldEarned += 50;
-                powerUpNotification.querySelector('.power-up-text').textContent = '+50 Bonus Gold!';
+                const skillEffects = this.getSkillEffects();
+                const bonusGold = Math.floor(50 * skillEffects.goldMultiplier);
+                this.money += bonusGold;
+                this.goldEarned += bonusGold;
+                powerUpNotification.querySelector('.power-up-text').textContent = `+${bonusGold} Bonus Gold!`;
                 break;
             case 'ability_reset':
                 // Alle Abilities zurücksetzen
@@ -1909,20 +2842,44 @@ class Game {
             } else if (enemy.health <= 0) {
                 const baseReward = enemy.reward;
                 
-                // Combo-System anwenden
-                this.updateCombo(baseReward);
+                // Apply skill effects
+                const skillEffects = this.getSkillEffects();
+                const finalReward = Math.floor(baseReward * skillEffects.goldMultiplier);
                 
-                // Geld mit Combo-Bonus
-                this.money += baseReward;
-                this.goldEarned += baseReward;
+                // Treasure hunter skill chance for bonus gold
+                if (Math.random() < skillEffects.treasureChance) {
+                    this.money += skillEffects.treasureAmount;
+                    this.goldEarned += skillEffects.treasureAmount;
+                }
+                
+                // Combo-System anwenden
+                this.updateCombo(finalReward);
+                
+                // Handle special enemy death effects
+                enemy.onDeath(this);
+                
+                // Lebensentzug-Skill (Life Steal)
+                const lifeStealSkill = this.getSkillEffects();
+                if (Math.random() < lifeStealSkill.lifeStealChance) {
+                    this.lives += 1;
+                    console.log(`Life steal activated! +1 Leben. Current lives: ${this.lives}`);
+                    this.showMessage('+1 Leben (Lebensentzug)!', 'success');
+                }
+                
+                // Geld mit Combo-Bonus und bereits angewendeten Skill-Bonus
+                this.money += finalReward;
+                this.goldEarned += finalReward;
                 this.score += enemy.points * this.comboMultiplier;
                 this.totalKills++;
                 
                 // Update statistics
                 this.sessionStats.kills++;
-                this.sessionStats.goldEarned += baseReward;
+                this.sessionStats.goldEarned += finalReward;
                 this.updateStatistic('totalKills', 1);
-                this.updateStatistic('totalGold', baseReward);
+                this.updateStatistic('totalGold', finalReward);
+                
+                // Check for skill point rewards from kills
+                this.checkKillSkillPointRewards();
                 
                 this.enemies.splice(i, 1);
                 this.updateUI();
@@ -1981,9 +2938,14 @@ class Game {
         this.wave++;
         
         // Progressive Wellen-Belohnung
-        const waveBonus = 25 + Math.floor(this.wave * 2);
+        const skillEffects = this.getSkillEffects();
+        const baseWaveBonus = 25 + Math.floor(this.wave * 2);
+        const waveBonus = Math.floor(baseWaveBonus * skillEffects.goldMultiplier);
         this.money += waveBonus;
         this.goldEarned += waveBonus;
+        
+        // Skill-Punkte für Wellen-Abschluss
+        this.checkWaveSkillPointRewards();
         
         // Zeige Wellen-Abschluss-Information
         this.showWaveCompleteMessage();
@@ -2174,8 +3136,28 @@ class Game {
         
         // Tower-Cards updaten
         document.querySelectorAll('.tower-card').forEach(card => {
-            const cost = parseInt(card.dataset.cost);
-            if (this.money < cost) {
+            const baseCost = parseInt(card.dataset.cost);
+            const towerType = card.dataset.tower;
+            const actualCost = this.getTowerCost(towerType);
+            
+            // Kostenreduzierung durch Skills
+            const skillEffects = this.getSkillEffects();
+            const isReduced = skillEffects.costReduction > 0;
+            
+            // Aktualisiere die Kostenanzeige
+            const costElement = card.querySelector('.tower-cost');
+            if (costElement) {
+                if (isReduced && actualCost < baseCost) {
+                    costElement.innerHTML = `<i class="fas fa-coins"></i> <span class="original-cost">${baseCost}</span> → ${actualCost}`;
+                    costElement.classList.add('reduced-cost');
+                } else {
+                    costElement.innerHTML = `<i class="fas fa-coins"></i> ${actualCost}`;
+                    costElement.classList.remove('reduced-cost');
+                }
+            }
+            
+            // Verfügbarkeit basierend auf aktuellen Kosten
+            if (this.money < actualCost) {
                 card.disabled = true;
                 card.style.opacity = '0.5';
                 card.style.cursor = 'not-allowed';
@@ -2201,6 +3183,137 @@ class Game {
         } catch (error) {
             console.warn('Error updating ability buttons:', error);
         }
+        
+        // Skill-Effekte Panel updaten
+        this.updateSkillEffectsDisplay();
+    }
+    
+    updateSkillEffectsDisplay() {
+        const skillEffectsList = document.getElementById('skillEffectsList');
+        const skillEffectsPanel = document.getElementById('skillEffectsPanel');
+        
+        if (!skillEffectsList || !skillEffectsPanel) return;
+        
+        const effects = this.getSkillEffects();
+        skillEffectsList.innerHTML = '';
+        
+        // Nur Effekte anzeigen, die aktiv sind (nicht Standard-Werte)
+        const activeEffects = [];
+        
+        if (effects.damageMultiplier > 1) {
+            activeEffects.push({
+                text: `+${Math.round((effects.damageMultiplier - 1) * 100)}% Schaden`,
+                icon: 'fas fa-sword',
+                class: 'damage'
+            });
+        }
+        
+        if (effects.goldMultiplier > 1) {
+            activeEffects.push({
+                text: `+${Math.round((effects.goldMultiplier - 1) * 100)}% Gold`,
+                icon: 'fas fa-coins',
+                class: 'gold'
+            });
+        }
+        
+        if (effects.fireRateMultiplier > 1) {
+            activeEffects.push({
+                text: `+${Math.round((effects.fireRateMultiplier - 1) * 100)}% Feuerrate`,
+                icon: 'fas fa-tachometer-alt',
+                class: 'support'
+            });
+        }
+        
+        if (effects.rangeMultiplier > 1) {
+            activeEffects.push({
+                text: `+${Math.round((effects.rangeMultiplier - 1) * 100)}% Reichweite`,
+                icon: 'fas fa-expand-arrows-alt',
+                class: 'support'
+            });
+        }
+        
+        if (effects.costReduction > 0) {
+            activeEffects.push({
+                text: `-${Math.round(effects.costReduction * 100)}% Tower Kosten`,
+                icon: 'fas fa-percentage',
+                class: 'economy'
+            });
+        }
+        
+        if (effects.critChance > 0) {
+            activeEffects.push({
+                text: `${Math.round(effects.critChance * 100)}% Kritisch`,
+                icon: 'fas fa-star',
+                class: 'damage'
+            });
+        }
+        
+        if (effects.multiShotChance > 0) {
+            activeEffects.push({
+                text: `${Math.round(effects.multiShotChance * 100)}% Mehrfachschuss`,
+                icon: 'fas fa-bullseye',
+                class: 'support'
+            });
+        }
+        
+        if (effects.interestRate > 0) {
+            activeEffects.push({
+                text: `${Math.round(effects.interestRate * 100)}% Zinssatz`,
+                icon: 'fas fa-chart-line',
+                class: 'economy'
+            });
+        }
+        
+        if (effects.armorPiercing > 0) {
+            activeEffects.push({
+                text: `${effects.armorPiercing} Rüstungsdurchbruch`,
+                icon: 'fas fa-shield',
+                class: 'damage'
+            });
+        }
+        
+        if (effects.splashRadius > 1) {
+            activeEffects.push({
+                text: `+${Math.round((effects.splashRadius - 1) * 100)}% Splash-Radius`,
+                icon: 'fas fa-bomb',
+                class: 'damage'
+            });
+        }
+        
+        if (effects.lifeStealChance > 0) {
+            activeEffects.push({
+                text: `${Math.round(effects.lifeStealChance * 100)}% Lebensentzug`,
+                icon: 'fas fa-heart',
+                class: 'support'
+            });
+        }
+        
+        if (effects.sellValueBonus > 0) {
+            activeEffects.push({
+                text: `+${Math.round(effects.sellValueBonus * 100)}% Verkaufswert`,
+                icon: 'fas fa-money-bill-wave',
+                class: 'economy'
+            });
+        }
+        
+        if (effects.treasureChance > 0) {
+            activeEffects.push({
+                text: `${Math.round(effects.treasureChance * 100)}% Schatzfund`,
+                icon: 'fas fa-gem',
+                class: 'economy'
+            });
+        }
+        
+        // Effekte als Badges anzeigen
+        activeEffects.forEach(effect => {
+            const badge = document.createElement('div');
+            badge.className = `skill-effect-badge ${effect.class}`;
+            badge.innerHTML = `<i class="${effect.icon}"></i> ${effect.text}`;
+            skillEffectsList.appendChild(badge);
+        });
+        
+        // Panel nur anzeigen wenn Effekte aktiv sind
+        skillEffectsPanel.style.display = activeEffects.length > 0 ? 'block' : 'none';
     }
     
     showMessage(message, type = 'error') {
@@ -2387,6 +3500,9 @@ class Game {
     gameOver() {
         this.gameRunning = false;
         
+        // Skill-Punkte für Spiel-Ende basierend auf erreichte Welle
+        this.awardGameOverSkillPoints();
+        
         // Update session end statistics
         const playTime = Date.now() - this.gameStartTime;
         this.updateStatistic('totalGames', 1);
@@ -2472,16 +3588,40 @@ class Tower {
     
     setStats() {
         const stats = {
+            // Base tower types
             basic: { damage: 10, range: 80, speed: 1000, value: 20 },
             ice: { damage: 5, range: 90, speed: 800, value: 40, slow: 0.5 },
             fire: { damage: 15, range: 70, speed: 1200, value: 60, splash: 30 },
             lightning: { damage: 25, range: 100, speed: 1500, value: 100, chain: 3 },
             poison: { damage: 8, range: 85, speed: 900, value: 80, poison: 3 },
             sniper: { damage: 50, range: 150, speed: 2000, value: 120 },
-            tesla: { damage: 30, range: 120, speed: 800, value: 150, stun: 60 }
+            tesla: { damage: 30, range: 120, speed: 800, value: 150, stun: 60 },
+            
+            // Fused tower types - use basic stats as base, special properties are set in createFusedTower
+            enhanced_basic: { damage: 20, range: 120, speed: 800, value: 80 },
+            frost_basic: { damage: 12, range: 100, speed: 900, value: 60, slow: 0.3 },
+            arcane_sniper: { damage: 60, range: 180, speed: 1800, value: 220 },
+            frost_cannon: { damage: 20, range: 90, speed: 1000, value: 100, splash: 60, slow: 0.5 },
+            void_mage: { damage: 30, range: 110, speed: 1200, value: 180, poison: 5 },
+            rapid_sniper: { damage: 45, range: 160, speed: 1000, value: 140 },
+            toxic_cannon: { damage: 18, range: 95, speed: 1100, value: 140, splash: 80, poison: 8 },
+            freeze_tesla: { damage: 28, range: 130, speed: 700, value: 190, chain: 4, slow: 0.3 },
+            plasma_tower: { damage: 45, range: 140, speed: 850, value: 210, splash: 70 }
         };
         
         const baseStat = stats[this.type];
+        
+        if (!baseStat) {
+            console.error(`Unknown tower type: ${this.type}`);
+            // Fallback to basic stats
+            const fallback = stats.basic;
+            this.damage = fallback.damage * this.level;
+            this.range = fallback.range + (this.level - 1) * 10;
+            this.speed = fallback.speed;
+            this.value = fallback.value * this.level;
+            return;
+        }
+        
         this.damage = baseStat.damage * this.level;
         this.range = baseStat.range + (this.level - 1) * 10;
         this.speed = baseStat.speed;
@@ -2500,15 +3640,21 @@ class Tower {
     
     update(enemies, projectiles) {
         const now = Date.now();
-        if (now - this.lastShot < this.speed) return;
         
-        // Nächsten Gegner in Reichweite finden
+        // Skill-Effekte für Feuerrate anwenden
+        const skillEffects = game.getSkillEffects();
+        const adjustedSpeed = this.speed / skillEffects.fireRateMultiplier;
+        
+        if (now - this.lastShot < adjustedSpeed) return;
+        
+        // Nächsten Gegner in Reichweite finden (mit Skill-Reichweite)
         let target = null;
         let closestDistance = Infinity;
+        const adjustedRange = this.range * skillEffects.rangeMultiplier;
         
         for (let enemy of enemies) {
             const distance = Math.sqrt((enemy.x - this.x) ** 2 + (enemy.y - this.y) ** 2);
-            if (distance <= this.range && distance < closestDistance) {
+            if (distance <= adjustedRange && distance < closestDistance) {
                 closestDistance = distance;
                 target = enemy;
             }
@@ -2576,15 +3722,19 @@ class Enemy {
             basic: { health: 20, speed: 1, reward: 5, points: 10, size: 8 },
             fast: { health: 10, speed: 2, reward: 8, points: 15, size: 6 },
             tank: { health: 80, speed: 0.5, reward: 15, points: 25, size: 12 },
-            boss: { health: 200, speed: 0.8, reward: 50, points: 100, size: 16 }
+            boss: { health: 200, speed: 0.8, reward: 50, points: 100, size: 16 },
+            flying: { health: 15, speed: 1.5, reward: 12, points: 20, size: 7 },
+            shielded: { health: 50, speed: 0.8, reward: 20, points: 30, size: 10 },
+            splitter: { health: 30, speed: 1.2, reward: 18, points: 35, size: 9 },
+            teleporter: { health: 25, speed: 1.8, reward: 25, points: 40, size: 8 }
         };
         
         const stats = baseStats[this.type];
         
         // Progressive Skalierung mit jeder Welle
-        const waveScaling = 1 + (wave - 1) * 0.15; // 15% Stärke-Zuwachs pro Welle
-        const healthScaling = 1 + (wave - 1) * 0.25; // 25% Gesundheits-Zuwachs pro Welle
-        const speedScaling = Math.min(1 + (wave - 1) * 0.05, 2); // Max 2x Geschwindigkeit
+        const waveScaling = 1 + (wave - 1) * 0.15;
+        const healthScaling = 1 + (wave - 1) * 0.25;
+        const speedScaling = Math.min(1 + (wave - 1) * 0.05, 2);
         
         // Basis-Werte mit progressiver Skalierung
         this.maxHealth = Math.floor(stats.health * healthScaling + wave * 3);
@@ -2597,26 +3747,38 @@ class Enemy {
         this.points = Math.floor(stats.points * waveScaling);
         this.size = stats.size;
         
+        // Special enemy properties
+        this.flying = this.type === 'flying';
+        this.shield = this.type === 'shielded' ? Math.floor(this.maxHealth * 0.5) : 0;
+        this.maxShield = this.shield;
+        this.teleportCooldown = 0;
+        this.hasBeenSplit = false;
+        
         // Spezielle Bonus-Eigenschaften für höhere Wellen
         if (wave >= 10) {
-            // Ab Welle 10: Alle Feinde erhalten Bonus-Gesundheit
             this.maxHealth = Math.floor(this.maxHealth * 1.3);
             this.health = this.maxHealth;
+            if (this.type === 'shielded') {
+                this.shield = Math.floor(this.maxHealth * 0.5);
+                this.maxShield = this.shield;
+            }
         }
         
         if (wave >= 15) {
-            // Ab Welle 15: Zusätzliche Geschwindigkeit
             this.baseSpeed *= 1.2;
             this.speed = this.baseSpeed;
         }
         
         if (wave >= 20) {
-            // Ab Welle 20: Feinde werden größer und noch stärker
             this.maxHealth = Math.floor(this.maxHealth * 1.5);
             this.health = this.maxHealth;
             this.size *= 1.1;
             this.reward = Math.floor(this.reward * 1.5);
             this.points = Math.floor(this.points * 1.5);
+            if (this.type === 'shielded') {
+                this.shield = Math.floor(this.maxHealth * 0.5);
+                this.maxShield = this.shield;
+            }
         }
     }
     
@@ -2630,10 +3792,19 @@ class Enemy {
         // Poison-Effekt
         if (this.poisonDuration > 0) {
             this.poisonDuration--;
-            if (this.poisonDuration % 30 === 0) { // Schaden alle 0.5 Sekunden
+            if (this.poisonDuration % 30 === 0) {
                 this.health -= this.poisonDamage;
             }
         }
+        
+        // Teleporter special ability
+        if (this.type === 'teleporter' && this.teleportCooldown <= 0) {
+            if (Math.random() < 0.02) { // 2% chance per frame to teleport
+                this.teleport();
+                this.teleportCooldown = 120; // 2 second cooldown
+            }
+        }
+        if (this.teleportCooldown > 0) this.teleportCooldown--;
         
         // Slow-Effekt
         if (this.slowDuration > 0) {
@@ -2666,20 +3837,76 @@ class Enemy {
     }
     
     takeDamage(damage, effects = {}) {
-        this.health -= damage;
+        // Flying enemies can only be hit by certain tower types
+        if (this.flying && effects.damageType !== 'magic' && effects.damageType !== 'explosive') {
+            return false; // Attack missed
+        }
+        
+        // Shielded enemies absorb damage with shield first
+        if (this.shield > 0) {
+            if (effects.damageType === 'pierce') {
+                // Pierce damage bypasses shield
+                this.health -= damage;
+            } else {
+                const shieldDamage = Math.min(damage, this.shield);
+                this.shield -= shieldDamage;
+                const remainingDamage = damage - shieldDamage;
+                if (remainingDamage > 0) {
+                    this.health -= remainingDamage;
+                }
+            }
+        } else {
+            this.health -= damage;
+        }
         
         if (effects.slow) {
             this.slowEffect = effects.slow;
-            this.slowDuration = 120; // 2 Sekunden bei 60 FPS
+            this.slowDuration = 120;
         }
         
         if (effects.poison) {
             this.poisonDamage = effects.poison;
-            this.poisonDuration = 300; // 5 Sekunden
+            this.poisonDuration = 300;
         }
         
         if (effects.stun) {
             this.stunDuration = effects.stun;
+        }
+        
+        return true; // Attack hit
+    }
+
+    onDeath(game) {
+        // Splitter enemies split into smaller enemies when killed
+        if (this.type === 'splitter' && !this.hasBeenSplit) {
+            const splitCount = 2;
+            for (let i = 0; i < splitCount; i++) {
+                const smallEnemy = new Enemy(this.path, 'basic', 1);
+                smallEnemy.x = this.x + (Math.random() - 0.5) * 30;
+                smallEnemy.y = this.y + (Math.random() - 0.5) * 30;
+                smallEnemy.pathIndex = this.pathIndex;
+                smallEnemy.maxHealth = Math.floor(this.maxHealth * 0.3);
+                smallEnemy.health = smallEnemy.maxHealth;
+                smallEnemy.size = this.size * 0.7;
+                smallEnemy.reward = Math.floor(this.reward * 0.3);
+                smallEnemy.points = Math.floor(this.points * 0.3);
+                smallEnemy.hasBeenSplit = true;
+                game.enemies.push(smallEnemy);
+            }
+        }
+    }
+
+    teleport() {
+        // Teleport to a random point further along the path
+        const currentIndex = this.pathIndex;
+        const maxJump = Math.min(3, this.path.length - 1 - currentIndex);
+        if (maxJump > 0) {
+            const jumpDistance = Math.floor(Math.random() * maxJump) + 1;
+            this.pathIndex = Math.min(currentIndex + jumpDistance, this.path.length - 1);
+            if (this.pathIndex < this.path.length) {
+                this.x = this.path[this.pathIndex].x;
+                this.y = this.path[this.pathIndex].y;
+            }
         }
     }
     
@@ -2704,6 +3931,32 @@ class Enemy {
         
         ctx.fillStyle = 'green';
         ctx.fillRect(this.x - barWidth / 2, this.y - this.size - 8, barWidth * healthPercent, barHeight);
+        
+        // Shield bar for shielded enemies
+        if (this.maxShield > 0) {
+            const shieldPercent = this.shield / this.maxShield;
+            ctx.fillStyle = 'blue';
+            ctx.fillRect(this.x - barWidth / 2, this.y - this.size - 12, barWidth, barHeight);
+            ctx.fillStyle = 'cyan';
+            ctx.fillRect(this.x - barWidth / 2, this.y - this.size - 12, barWidth * shieldPercent, barHeight);
+        }
+        
+        // Flying indicator
+        if (this.flying) {
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        
+        // Teleporter glow effect
+        if (this.type === 'teleporter') {
+            ctx.shadowColor = '#9370DB';
+            ctx.shadowBlur = 10;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
         
         // Slow-Effekt anzeigen
         if (this.slowDuration > 0) {
@@ -2732,9 +3985,13 @@ class Enemy {
             basic: '#FF6B6B',
             fast: '#4ECDC4',
             tank: '#45B7D1',
-            boss: '#96CEB4'
+            boss: '#96CEB4',
+            flying: '#E6E6FA',
+            shielded: '#FFD700',
+            splitter: '#FF69B4',
+            teleporter: '#9370DB'
         };
-        return colors[this.type];
+        return colors[this.type] || '#FF6B6B';
     }
 }
 
@@ -2770,6 +4027,27 @@ class Projectile {
             this.vx = (dx / distance) * this.speed;
             this.vy = (dy / distance) * this.speed;
         }
+    }
+    
+    findNearestEnemy(excludeEnemy) {
+        let nearestEnemy = null;
+        let nearestDistance = Infinity;
+        
+        for (let enemy of game.enemies) {
+            if (enemy === excludeEnemy || enemy.health <= 0) continue;
+            
+            const distance = Math.sqrt(
+                Math.pow(enemy.x - this.x, 2) + 
+                Math.pow(enemy.y - this.y, 2)
+            );
+            
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestEnemy = enemy;
+            }
+        }
+        
+        return nearestEnemy;
     }
     
     update() {
@@ -2812,7 +4090,7 @@ class Projectile {
         
         const effects = {};
         
-        // Tower-spezifische Effekte
+        // Tower-spezifische Effekte basierend auf Tower-Typ
         if (this.tower.type === 'ice') {
             effects.slow = this.tower.slow;
         }
@@ -2825,30 +4103,102 @@ class Projectile {
             effects.stun = this.tower.stun;
         }
         
-        // Damage Boost berücksichtigen
+        // Erweiterte Effekte für fusionierte Tower (basierend auf Eigenschaften)
+        if (this.tower.slowEffect && this.tower.slowEffect > 0) {
+            effects.slow = this.tower.slowEffect;
+            console.log(`Applying slow effect: ${this.tower.slowEffect}`);
+        }
+        
+        if (this.tower.poisonDamage && this.tower.poisonDamage > 0) {
+            effects.poison = this.tower.poisonDamage;
+            console.log(`Applying poison damage: ${this.tower.poisonDamage}`);
+        }
+        
+        if (this.tower.stun && this.tower.stun > 0) {
+            effects.stun = this.tower.stun;
+            console.log(`Applying stun: ${this.tower.stun}`);
+        }
+        
+        // Damage type für spezielle Effekte
+        if (this.tower.damageType) {
+            effects.damageType = this.tower.damageType;
+        }
+        
+        // Basis-Schaden mit Skill-Effekten
         let finalDamage = this.tower.damage;
+        
+        // Skill-Effekte anwenden
+        const skillEffects = game.getSkillEffects();
+        
+        // Erhöhter Schaden (increasedDamage skill)
+        finalDamage *= skillEffects.damageMultiplier;
+        
+        // Kritischer Treffer (criticalHit skill)
+        if (Math.random() < skillEffects.critChance) {
+            finalDamage *= skillEffects.critMultiplier;
+            console.log(`Critical hit! Damage: ${finalDamage}`);
+        }
+        
+        // Rüstungsdurchbruch (armorPiercing skill)
+        if (skillEffects.armorPiercing > 0) {
+            effects.armorPiercing = skillEffects.armorPiercing;
+        }
+        
+        // Damage Boost berücksichtigen
         if (game.activeEffects.damageBoost) {
             finalDamage *= 2;
         }
         
+        // Mehrfachschuss (multiShot skill)
+        let projectileCount = 1;
+        if (Math.random() < skillEffects.multiShotChance) {
+            projectileCount = 2;
+            console.log(`Multi-shot activated!`);
+        }
+        
+        // Haupttreffer
         this.target.takeDamage(finalDamage, effects);
         
-        // Splash-Schaden (Fire Tower)
-        if (this.tower.type === 'fire' && this.tower.splash) {
+        // Zusätzlicher Projektil bei Mehrfachschuss
+        if (projectileCount > 1) {
+            // Finde nächsten Gegner für zusätzlichen Schuss
+            const nearestEnemy = this.findNearestEnemy(this.target);
+            if (nearestEnemy) {
+                nearestEnemy.takeDamage(finalDamage * 0.8, effects); // 80% Schaden
+            }
+        }
+        
+        // Splash-Schaden (Fire Tower und fusionierte Tower mit Splash)
+        if ((this.tower.type === 'fire' && this.tower.splash) || 
+            (this.tower.splashRadius && this.tower.splashRadius > 0)) {
+            
+            // Skill-Effekte für Splash-Radius anwenden
+            const skillEffects = game.getSkillEffects();
+            const baseSplashRadius = this.tower.splashRadius || this.tower.splash;
+            const splashRadius = Math.floor(baseSplashRadius * skillEffects.splashRadius);
+            
+            console.log(`Applying splash damage with radius: ${splashRadius} (base: ${baseSplashRadius}, multiplier: ${skillEffects.splashRadius})`);
+            
             game.enemies.forEach(enemy => {
                 if (enemy !== this.target) {
                     const distance = Math.sqrt((enemy.x - this.target.x) ** 2 + (enemy.y - this.target.y) ** 2);
-                    if (distance <= this.tower.splash) {
+                    if (distance <= splashRadius) {
                         let splashDamage = finalDamage * 0.5;
-                        enemy.takeDamage(splashDamage);
+                        // Splash kann auch Effekte haben
+                        const splashEffects = { ...effects };
+                        enemy.takeDamage(splashDamage, splashEffects);
                     }
                 }
             });
         }
         
-        // Chain Lightning (Lightning Tower)
-        if (this.tower.type === 'lightning' && this.tower.chain) {
-            this.chainLightning(this.target, this.tower.chain - 1, this.tower.damage * 0.7);
+        // Chain Lightning (Lightning Tower und fusionierte Tower mit Chain)
+        if ((this.tower.type === 'lightning' && this.tower.chain) || 
+            (this.tower.chain && this.tower.chain > 0)) {
+            
+            const chainCount = this.tower.chain;
+            console.log(`Applying chain lightning with ${chainCount} targets`);
+            this.chainLightning(this.target, chainCount - 1, this.tower.damage * 0.7);
         }
     }
     
