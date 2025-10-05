@@ -10,8 +10,7 @@ class Game {
         this.initializeStatistics();
         this.gameStartTime = Date.now();
         
-        // Initialize maps
-        this.initializeMaps();
+        // Set current map ID from storage
         this.currentMapId = localStorage.getItem('rushRoyalSelectedMap') || 'classic';
         
         // Initialize skill tree
@@ -19,6 +18,9 @@ class Game {
         
         // Initialize fusion system
         this.initializeFusionRecipes();
+        
+        // Initialize trading system
+        this.initializeTradingSystem();
         
         this.towers = [];
         this.enemies = [];
@@ -73,13 +75,20 @@ class Game {
             damageBoost: false
         };
         
-        // Initialize current map
+        // Initialize maps first, then load current map
+        this.initializeMaps();
         this.loadMap(this.currentMapId);
         
         this.setupEventListeners();
-        this.setupMenuEventListeners();
+        
+        // Menu event listeners will be set up globally after DOM load
+        // But we still need other event listeners
+        setTimeout(() => {
+            this.setupMenuEventListeners();
+        }, 100);
+        
         this.gameLoop();
-        this.drawPath();
+        // drawPath will be called in the gameLoop when canvas is ready
         this.applySettings();
     }
 
@@ -226,6 +235,10 @@ class Game {
         const map = this.maps[mapId];
         if (!map) {
             console.error('Map not found:', mapId);
+            // Fallback to classic map
+            if (mapId !== 'classic' && this.maps['classic']) {
+                return this.loadMap('classic');
+            }
             return;
         }
 
@@ -1247,18 +1260,25 @@ class Game {
     }
     
     initializeCanvas() {
+        console.log('initializeCanvas() called');
         this.canvas = document.getElementById('gameCanvas');
+        console.log('Canvas element found:', !!this.canvas);
+        
         if (this.canvas) {
             this.ctx = this.canvas.getContext('2d');
             // Canvas-Größe korrekt setzen (größer für bessere Sichtbarkeit)
             this.canvas.width = 1000;
             this.canvas.height = 750;
             
+            console.log('Canvas initialized with size:', this.canvas.width, 'x', this.canvas.height);
+            
             // Set map background
             if (this.currentMap) {
                 this.canvas.style.background = this.currentMap.background;
+                console.log('Set canvas background to:', this.currentMap.background);
             }
         } else {
+            console.log('Canvas not found, retrying in 100ms');
             // Fallback: Canvas wird später initialisiert wenn Spiel gestartet wird
             setTimeout(() => this.initializeCanvas(), 100);
         }
@@ -1459,7 +1479,12 @@ class Game {
             this.towers.push(tower);
             this.money -= cost;
             this.towersBuilt++;
-            
+
+            // Send to multiplayer if connected
+            if (this.multiplayerMode && multiplayerManager && multiplayerManager.isConnected()) {
+                multiplayerManager.sendTowerPlaced(tower);
+            }
+
             // Update statistics
             this.sessionStats.towersBuilt++;
             this.sessionStats.goldSpent += cost;
@@ -1724,6 +1749,7 @@ class Game {
     }
     
     restartGame() {
+        console.log('restartGame() called');
         this.towers = [];
         this.enemies = [];
         this.projectiles = [];
@@ -1744,6 +1770,8 @@ class Game {
         this.lastKillTime = 0;
         this.powerUps = [];
         this.screenShake = 0;
+        
+        console.log('Game state reset - lives:', this.lives, 'money:', this.money, 'wave:', this.wave);
         
         // Reset active effects
         this.activeEffects = {
@@ -1983,6 +2011,11 @@ class Game {
             this.money -= actualUpgradeCost;
             this.selectedTower.upgrade();
             
+            // Send to multiplayer if connected (coop mode only)
+            if (this.multiplayerMode === 'coop' && multiplayerManager && multiplayerManager.isConnected()) {
+                multiplayerManager.sendTowerUpgraded(this.selectedTower);
+            }
+            
             // Update statistics
             this.sessionStats.upgrades++;
             this.sessionStats.goldSpent += actualUpgradeCost;
@@ -2000,7 +2033,15 @@ class Game {
         const skillEffects = this.getSkillEffects();
         const baseSellValue = Math.floor(this.selectedTower.value * 0.7);
         const sellValue = Math.floor(baseSellValue * (1 + skillEffects.sellValueBonus));
+        const towerX = this.selectedTower.x;
+        const towerY = this.selectedTower.y;
+        
         this.money += sellValue;
+        
+        // Send to multiplayer if connected (coop mode only)
+        if (this.multiplayerMode === 'coop' && multiplayerManager && multiplayerManager.isConnected()) {
+            multiplayerManager.sendTowerSold(towerX, towerY, sellValue);
+        }
         
         // Update statistics
         this.sessionStats.towersSold++;
@@ -2023,6 +2064,139 @@ class Game {
             return `${baseDamage} → ${effectiveDamage} (+${Math.round((skillEffects.damageMultiplier - 1) * 100)}%)`;
         }
         return `${baseDamage}`;
+    }
+
+    // PvP Enemy Sending System
+    sendPvPEnemies(enemyType, count) {
+        if (!this.multiplayerMode || this.multiplayerMode !== 'pvp') {
+            this.showMessage('Nur im PvP-Modus verfügbar!');
+            return;
+        }
+        
+        if (!multiplayerManager || !multiplayerManager.isConnected()) {
+            this.showMessage('Nicht mit Gegner verbunden!');
+            return;
+        }
+        
+        const cost = this.getPvPEnemyCost(enemyType, count);
+        if (this.money < cost) {
+            this.showMessage('Nicht genug Geld!');
+            return;
+        }
+        
+        this.money -= cost;
+        multiplayerManager.sendEnemies(enemyType, count);
+        this.showMessage(`${count}x ${enemyType} Feinde gesendet!`);
+        this.updateUI();
+    }
+    
+    getPvPEnemyCost(enemyType, count) {
+        const costs = {
+            'basic': 10,
+            'fast': 20,
+            'tank': 40,
+            'flying': 25,
+            'boss': 150,
+            'swarm': 12
+        };
+        return (costs[enemyType] || 10) * count;
+    }
+    
+    // Coop Abilities
+    useCoopAbility(abilityType) {
+        if (!this.multiplayerMode || this.multiplayerMode !== 'coop') {
+            this.showMessage('Nur im Coop-Modus verfügbar!');
+            return;
+        }
+        
+        if (!multiplayerManager || !multiplayerManager.isConnected()) {
+            this.showMessage('Nicht mit Partner verbunden!');
+            return;
+        }
+        
+        const cost = this.getCoopAbilityCost(abilityType);
+        if (this.money < cost) {
+            this.showMessage('Nicht genug Geld!');
+            return;
+        }
+        
+        this.money -= cost;
+        
+        switch (abilityType) {
+            case 'goldRush':
+                this.goldRush();
+                multiplayerManager.sendSpecialAbility('goldRush', 'Gold Rush');
+                break;
+            case 'freezeAll':
+                this.freezeAllEnemies();
+                multiplayerManager.sendSpecialAbility('freezeAll', 'Freeze All');
+                break;
+        }
+        
+        this.updateUI();
+    }
+    
+    getCoopAbilityCost(abilityType) {
+        const costs = {
+            'goldRush': 100,
+            'freezeAll': 75
+        };
+        return costs[abilityType] || 50;
+    }
+    
+    goldRush() {
+        this.money += 200;
+        this.showMessage('Gold Rush aktiviert! +200 Gold');
+    }
+    
+    freezeAllEnemies() {
+        this.enemies.forEach(enemy => {
+            enemy.freezeTime = 3000; // 3 Sekunden einfrieren
+        });
+        this.showMessage('Alle Feinde eingefroren!');
+    }
+    
+    // Multiplayer UI Updates
+    updateMultiplayerUI() {
+        if (!this.multiplayerMode) return;
+        
+        if (this.multiplayerMode === 'pvp') {
+            const pvpPanel = document.getElementById('pvpEnemyPanel');
+            const coopPanel = document.getElementById('coopInfoPanel');
+            
+            if (pvpPanel) {
+                pvpPanel.style.display = 'block';
+                const moneySpan = document.getElementById('pvpMoney');
+                if (moneySpan) moneySpan.textContent = this.money;
+            }
+            if (coopPanel) coopPanel.style.display = 'none';
+            
+        } else if (this.multiplayerMode === 'coop') {
+            const pvpPanel = document.getElementById('pvpEnemyPanel');
+            const coopPanel = document.getElementById('coopInfoPanel');
+            
+            if (pvpPanel) pvpPanel.style.display = 'none';
+            if (coopPanel) {
+                coopPanel.style.display = 'block';
+                
+                // Update shared resources display
+                const moneySpan = document.getElementById('coopSharedMoney');
+                const livesSpan = document.getElementById('coopSharedLives');
+                const scoreSpan = document.getElementById('coopSharedScore');
+                
+                if (moneySpan) moneySpan.textContent = this.money;
+                if (livesSpan) livesSpan.textContent = this.lives;
+                if (scoreSpan) scoreSpan.textContent = this.score;
+                
+                // Update partner info
+                const partnerInfo = document.getElementById('coopPartnerInfo');
+                if (partnerInfo && multiplayerManager) {
+                    const partner = Array.from(multiplayerManager.players.values())
+                        .find(p => p.id !== multiplayerManager.playerId);
+                    partnerInfo.textContent = partner ? `Partner: ${partner.name}` : 'Partner: Warte...';
+                }
+            }
+        }
     }
     
     getEffectiveTowerRange(tower) {
@@ -2347,50 +2521,9 @@ class Game {
     }
     
     setupMenuEventListeners() {
-        // Warten bis DOM vollständig geladen ist
-        setTimeout(() => {
-            // Hauptmenü Event Listeners
-            const startGameBtn = document.getElementById('startGame');
-            const howToPlayBtn = document.getElementById('howToPlay');
-            const settingsBtn = document.getElementById('settings');
-            const statisticsBtn = document.getElementById('statistics');
-            
-            if (startGameBtn) {
-                startGameBtn.addEventListener('click', () => this.startGameFromMenu());
-            }
-            
-            if (howToPlayBtn) {
-                howToPlayBtn.addEventListener('click', () => this.showHowToPlay());
-            }
-            
-            if (settingsBtn) {
-                settingsBtn.addEventListener('click', () => this.showSettings());
-            }
-
-            if (statisticsBtn) {
-                statisticsBtn.addEventListener('click', () => this.showStatistics());
-            }
-
-            const skillTreeMenuBtn = document.getElementById('skillTreeMenu');
-            if (skillTreeMenuBtn) {
-                skillTreeMenuBtn.addEventListener('click', () => {
-                    console.log('Skill Tree button clicked!');
-                    this.showSkillTreeFromMenu();
-                });
-            }
-
-            const mapSelectionBtn = document.getElementById('mapSelection');
-            if (mapSelectionBtn) {
-                mapSelectionBtn.addEventListener('click', () => this.showMapSelection());
-            }
-
-            // Changelog Button
-            const changelogBtn = document.getElementById('changelogBtn');
-            if (changelogBtn) {
-                changelogBtn.addEventListener('click', () => showChangelog());
-            }
-        }, 100);
-
+        // Menu event listeners are now set up globally in setupMainMenuEventListeners()
+        // This method is kept for other modal event listeners
+        
         // Settings Modal Event Listeners
         this.setupSettingsEventListeners();
         
@@ -2408,22 +2541,42 @@ class Game {
     }
     
     startGameFromMenu() {
+        console.log('startGameFromMenu() called');
+        
         const mainMenu = document.getElementById('mainMenu');
         const gameContainer = document.getElementById('gameContainer');
         const changelogBtn = document.getElementById('changelogBtn');
         
-        if (mainMenu) mainMenu.style.display = 'none';
-        if (gameContainer) gameContainer.style.display = 'block';
+        console.log('DOM elements found:', {
+            mainMenu: !!mainMenu,
+            gameContainer: !!gameContainer,
+            changelogBtn: !!changelogBtn
+        });
+        
+        if (mainMenu) {
+            console.log('Hiding main menu');
+            mainMenu.style.display = 'none';
+        }
+        if (gameContainer) {
+            console.log('Showing game container');
+            gameContainer.style.display = 'block';
+        }
         if (changelogBtn) changelogBtn.style.display = 'none'; // Button verstecken im Spiel
         
         // Canvas initialisieren falls nicht bereits geschehen
         if (!this.canvas) {
+            console.log('Initializing canvas');
             this.initializeCanvas();
+        } else {
+            console.log('Canvas already exists');
         }
         
         // Spiel zurücksetzen und starten
+        console.log('Restarting game');
         this.restartGame();
         this.gamePaused = false;
+        
+        console.log('Game started successfully');
         
         // Reset session statistics
         this.gameStartTime = Date.now();
@@ -2456,6 +2609,53 @@ class Game {
         
         // Spiel pausieren
         this.gamePaused = true;
+    }
+
+    exitTestMode() {
+        if (!this.testModeData) return;
+        
+        // Remove test notification
+        if (this.testModeData.notification && this.testModeData.notification.parentNode) {
+            this.testModeData.notification.remove();
+        }
+        
+        // Restore original map
+        this.currentMapId = this.testModeData.originalMapId;
+        delete this.maps['test_map'];
+        
+        // Clear test mode data
+        this.testModeData = null;
+        
+        // Return to main menu
+        this.showMainMenu();
+        
+        // Reopen map editor
+        setTimeout(() => {
+            this.showMapEditor();
+        }, 100);
+        
+        // Show return notification
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--primary-blue);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            z-index: 10000;
+            font-weight: 500;
+            box-shadow: var(--shadow-lg);
+        `;
+        notification.innerHTML = `
+            <i class="fas fa-arrow-left"></i> Zurück zum Map Editor
+        `;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
     }
 
     setupSettingsEventListeners() {
@@ -2651,9 +2851,19 @@ class Game {
     showMapSelection() {
         const modal = document.getElementById('mapSelectionModal');
         if (modal) {
+            this.loadCustomMaps();
             this.updateMapSelectionDisplay();
             modal.style.display = 'flex';
         }
+    }
+
+    loadCustomMaps() {
+        const savedMaps = JSON.parse(localStorage.getItem('customMaps') || '[]');
+        
+        // Add custom maps to the maps object
+        savedMaps.forEach(map => {
+            this.maps[map.id] = map;
+        });
     }
 
     updateMapSelectionDisplay() {
@@ -2739,8 +2949,152 @@ class Game {
             mapsGrid.appendChild(mapCard);
         });
         
+        // Add custom maps section
+        this.updateCustomMapsDisplay();
+        
         // Initialize temp selection
         this.tempSelectedMapId = this.currentMapId;
+    }
+
+    updateCustomMapsDisplay() {
+        const customMapsSection = document.getElementById('customMapsSection');
+        const customMapsGrid = document.getElementById('customMapsGrid');
+        const savedMaps = JSON.parse(localStorage.getItem('customMaps') || '[]');
+        
+        if (savedMaps.length === 0) {
+            customMapsSection.style.display = 'none';
+            return;
+        }
+        
+        customMapsSection.style.display = 'block';
+        customMapsGrid.innerHTML = '';
+        
+        savedMaps.forEach(map => {
+            const mapCard = document.createElement('div');
+            mapCard.className = `custom-map-card ${this.currentMapId === map.id ? 'selected' : ''}`;
+            
+            mapCard.innerHTML = `
+                <div class="custom-map-preview">
+                    <canvas width="260" height="100"></canvas>
+                </div>
+                <div class="custom-map-info">
+                    <h4>${map.name}</h4>
+                    <p>${map.description}</p>
+                    <div class="custom-map-meta">
+                        <span class="map-difficulty ${map.difficulty.toLowerCase()}">${map.difficulty}</span>
+                        <span class="map-created">${new Date(map.createdAt).toLocaleDateString()}</span>
+                    </div>
+                </div>
+                <div class="custom-map-actions">
+                    <button class="menu-btn secondary small" onclick="game.editCustomMap('${map.id}')">
+                        <i class="fas fa-edit"></i> Bearbeiten
+                    </button>
+                    <button class="menu-btn danger small" onclick="game.deleteCustomMap('${map.id}')">
+                        <i class="fas fa-trash"></i> Löschen
+                    </button>
+                </div>
+            `;
+            
+            // Draw mini preview
+            const canvas = mapCard.querySelector('canvas');
+            this.drawMiniPath(canvas, map.path);
+            
+            // Add click handler
+            mapCard.addEventListener('click', (e) => {
+                // Don't trigger if clicking on action buttons
+                if (e.target.closest('.custom-map-actions')) return;
+                
+                // Remove selection from other cards
+                document.querySelectorAll('.map-card, .custom-map-card').forEach(card => {
+                    card.classList.remove('selected');
+                });
+                
+                // Select this card
+                mapCard.classList.add('selected');
+                
+                // Update selection info
+                const selectedMapName = document.getElementById('selectedMapName');
+                const selectedMapDescription = document.getElementById('selectedMapDescription');
+                if (selectedMapName && selectedMapDescription) {
+                    selectedMapName.textContent = map.name;
+                    selectedMapDescription.textContent = map.description;
+                }
+                
+                // Store temporary selection
+                this.tempSelectedMapId = map.id;
+            });
+            
+            customMapsGrid.appendChild(mapCard);
+        });
+    }
+
+    editCustomMap(mapId) {
+        const savedMaps = JSON.parse(localStorage.getItem('customMaps') || '[]');
+        const map = savedMaps.find(m => m.id === mapId);
+        
+        if (map) {
+            // Close map selection and open editor with loaded map
+            closeModal('mapSelectionModal');
+            this.showMapEditor();
+            
+            // Load map data into editor
+            setTimeout(() => {
+                if (this.mapEditor) {
+                    this.mapEditor.loadMap(map);
+                }
+            }, 100);
+        }
+    }
+
+    deleteCustomMap(mapId) {
+        if (confirm('Möchtest du diese Custom Map wirklich löschen?')) {
+            let savedMaps = JSON.parse(localStorage.getItem('customMaps') || '[]');
+            savedMaps = savedMaps.filter(m => m.id !== mapId);
+            localStorage.setItem('customMaps', JSON.stringify(savedMaps));
+            
+            // Remove from current maps object
+            delete this.maps[mapId];
+            
+            // If this was the selected map, switch back to classic
+            if (this.currentMapId === mapId) {
+                this.currentMapId = 'classic';
+            }
+            
+            // Refresh display
+            this.updateCustomMapsDisplay();
+        }
+    }
+
+    showMapEditor() {
+        const modal = document.getElementById('mapEditorModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            this.initializeMapEditor();
+        }
+    }
+
+    initializeMapEditor() {
+        if (!this.mapEditor) {
+            this.mapEditor = new MapEditor();
+        }
+        this.mapEditor.initialize();
+    }
+
+    showMultiplayer() {
+        const modal = document.getElementById('multiplayerModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            this.initializeMultiplayer();
+        }
+    }
+
+    initializeMultiplayer() {
+        if (!this.multiplayer) {
+            this.multiplayer = new MultiplayerManager();
+        }
+        // Make it globally accessible as multiplayerManager
+        window.multiplayerManager = this.multiplayer;
+        this.multiplayer.initialize();
     }
 
     drawMiniPath(canvas, path) {
@@ -3057,6 +3411,9 @@ class Game {
         // Canvas leeren
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         
+        // Hintergrund rendern basierend auf ausgerüstetem Background
+        this.drawBackground();
+        
         // Pfad zeichnen
         this.drawPath();
         
@@ -3104,7 +3461,7 @@ class Game {
     }
     
     drawPath() {
-        if (!this.ctx) return;
+        if (!this.ctx || !this.path || this.path.length === 0) return;
         
         this.ctx.strokeStyle = '#8B4513';
         this.ctx.lineWidth = 30;
@@ -3129,6 +3486,167 @@ class Game {
         this.ctx.fillStyle = '#FF0000';
         this.ctx.beginPath();
         this.ctx.arc(this.path[this.path.length - 1].x, this.path[this.path.length - 1].y, 15, 0, Math.PI * 2);
+        this.ctx.fill();
+    }
+    
+    drawBackground() {
+        const equippedItems = this.getEquippedItems();
+        const backgroundId = equippedItems.background;
+        
+        if (!backgroundId) {
+            // Standard-Hintergrund (schwarz)
+            this.ctx.fillStyle = '#0a0a0a';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            return;
+        }
+        
+        // Verschiedene Hintergründe basierend auf Item ID
+        switch(backgroundId) {
+            case 'space_battle':
+                this.drawSpaceBattleBackground();
+                break;
+            case 'medieval_castle':
+                this.drawMedievalCastleBackground();
+                break;
+            case 'neon_city':
+                this.drawNeonCityBackground();
+                break;
+            case 'tropical_island':
+                this.drawTropicalIslandBackground();
+                break;
+            default:
+                // Fallback zu Standard-Hintergrund
+                this.ctx.fillStyle = '#0a0a0a';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+    }
+    
+    drawSpaceBattleBackground() {
+        // Weltraum-Hintergrund mit Sternen
+        const gradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+        gradient.addColorStop(0, '#0a0a2e');
+        gradient.addColorStop(0.5, '#16213e');
+        gradient.addColorStop(1, '#0f3460');
+        
+        this.ctx.fillStyle = gradient;
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Sterne hinzufügen (statische Positionen basierend auf Zeit)
+        this.ctx.fillStyle = 'white';
+        for (let i = 0; i < 100; i++) {
+            const x = (i * 137.5) % this.canvas.width; // Pseudo-random basierend auf Index
+            const y = (i * 179.3) % this.canvas.height;
+            const size = (i % 3) + 1;
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, size * 0.5, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
+        
+        // Entfernte Planeten
+        this.ctx.fillStyle = 'rgba(100, 100, 200, 0.3)';
+        this.ctx.beginPath();
+        this.ctx.arc(this.canvas.width * 0.8, this.canvas.height * 0.2, 30, 0, Math.PI * 2);
+        this.ctx.fill();
+    }
+    
+    drawMedievalCastleBackground() {
+        // Mittelalterlicher Hintergrund
+        const gradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+        gradient.addColorStop(0, '#2c3e50');
+        gradient.addColorStop(0.3, '#34495e');
+        gradient.addColorStop(1, '#1a252f');
+        
+        this.ctx.fillStyle = gradient;
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Burg-Silhouette im Hintergrund
+        this.ctx.fillStyle = 'rgba(52, 73, 94, 0.7)';
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.canvas.width * 0.1, this.canvas.height * 0.8);
+        this.ctx.lineTo(this.canvas.width * 0.2, this.canvas.height * 0.4);
+        this.ctx.lineTo(this.canvas.width * 0.3, this.canvas.height * 0.5);
+        this.ctx.lineTo(this.canvas.width * 0.4, this.canvas.height * 0.3);
+        this.ctx.lineTo(this.canvas.width * 0.5, this.canvas.height * 0.6);
+        this.ctx.lineTo(this.canvas.width * 0.9, this.canvas.height * 0.7);
+        this.ctx.lineTo(this.canvas.width, this.canvas.height);
+        this.ctx.lineTo(0, this.canvas.height);
+        this.ctx.closePath();
+        this.ctx.fill();
+    }
+    
+    drawNeonCityBackground() {
+        // Cyberpunk Neon-Stadt
+        const gradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+        gradient.addColorStop(0, '#0f0f23');
+        gradient.addColorStop(0.5, '#1a1a3a');
+        gradient.addColorStop(1, '#2d1b69');
+        
+        this.ctx.fillStyle = gradient;
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Neon-Gebäude
+        const buildingColors = ['#ff0080', '#00ff80', '#0080ff', '#ff8000'];
+        for (let i = 0; i < 8; i++) {
+            const x = (i * this.canvas.width) / 8;
+            const height = 100 + (i * 30) % 200;
+            const width = this.canvas.width / 8;
+            
+            this.ctx.fillStyle = 'rgba(0, 0, 40, 0.8)';
+            this.ctx.fillRect(x, this.canvas.height - height, width, height);
+            
+            // Neon-Umriss
+            this.ctx.strokeStyle = buildingColors[i % buildingColors.length];
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeRect(x, this.canvas.height - height, width, height);
+            
+            // Fenster
+            this.ctx.fillStyle = buildingColors[i % buildingColors.length];
+            for (let w = 0; w < 3; w++) {
+                for (let h = 0; h < Math.floor(height / 20); h++) {
+                    if (Math.random() > 0.7) {
+                        this.ctx.fillRect(x + w * 15 + 5, this.canvas.height - height + h * 20 + 5, 8, 8);
+                    }
+                }
+            }
+        }
+    }
+    
+    drawTropicalIslandBackground() {
+        // Tropische Insel
+        const skyGradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height * 0.6);
+        skyGradient.addColorStop(0, '#87CEEB');
+        skyGradient.addColorStop(1, '#98D8E8');
+        
+        this.ctx.fillStyle = skyGradient;
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height * 0.6);
+        
+        // Ozean
+        const oceanGradient = this.ctx.createLinearGradient(0, this.canvas.height * 0.6, 0, this.canvas.height);
+        oceanGradient.addColorStop(0, '#4682B4');
+        oceanGradient.addColorStop(1, '#2F4F4F');
+        
+        this.ctx.fillStyle = oceanGradient;
+        this.ctx.fillRect(0, this.canvas.height * 0.6, this.canvas.width, this.canvas.height * 0.4);
+        
+        // Palmen
+        this.ctx.fillStyle = '#8B4513';
+        this.ctx.fillRect(50, this.canvas.height * 0.4, 10, this.canvas.height * 0.2);
+        this.ctx.fillRect(this.canvas.width - 100, this.canvas.height * 0.3, 12, this.canvas.height * 0.3);
+        
+        // Palmblätter
+        this.ctx.fillStyle = '#228B22';
+        this.ctx.beginPath();
+        this.ctx.arc(55, this.canvas.height * 0.4, 20, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        this.ctx.beginPath();
+        this.ctx.arc(this.canvas.width - 94, this.canvas.height * 0.3, 25, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        // Sonne
+        this.ctx.fillStyle = '#FFD700';
+        this.ctx.beginPath();
+        this.ctx.arc(this.canvas.width * 0.8, this.canvas.height * 0.2, 30, 0, Math.PI * 2);
         this.ctx.fill();
     }
     
@@ -3251,6 +3769,9 @@ class Game {
         
         // Skill-Effekte Panel updaten
         this.updateSkillEffectsDisplay();
+        
+        // Multiplayer UI updaten
+        this.updateMultiplayerUI();
     }
     
     updateSkillEffectsDisplay() {
@@ -3561,7 +4082,929 @@ class Game {
             }
         }
     }
-    
+
+    // Trading System Implementation
+    initializeTradingSystem() {
+        // Trading-Inventar initialisieren
+        this.inventory = this.loadInventory();
+        this.marketplace = this.loadMarketplace();
+        this.tradingCurrency = this.loadTradingCurrency();
+        
+        // Täglich neue Items im Marktplatz generieren
+        this.refreshMarketplace();
+        
+        console.log('Trading system initialized');
+    }
+
+    loadInventory() {
+        const savedInventory = localStorage.getItem('rushRoyalInventory');
+        return savedInventory ? JSON.parse(savedInventory) : {
+            skins: {
+                towers: [],
+                backgrounds: [],
+                projectiles: []
+            },
+            items: {
+                powerUps: [],
+                boosters: [],
+                decorations: []
+            },
+            currency: {
+                gems: 0,
+                coins: 1000 // Startwährung
+            }
+        };
+    }
+
+    loadMarketplace() {
+        const savedMarketplace = localStorage.getItem('rushRoyalMarketplace');
+        const today = new Date().toDateString();
+        
+        if (savedMarketplace) {
+            const data = JSON.parse(savedMarketplace);
+            // Prüfen ob es ein neuer Tag ist
+            if (data.lastRefresh === today) {
+                return data;
+            }
+        }
+        
+        // Neuen Marktplatz generieren
+        return this.generateMarketplace();
+    }
+
+    loadTradingCurrency() {
+        return this.inventory.currency || { gems: 0, coins: 1000 };
+    }
+
+    generateMarketplace() {
+        const today = new Date().toDateString();
+        
+        const marketplace = {
+            lastRefresh: today,
+            dailyDeals: [],
+            featuredItems: [],
+            regularItems: []
+        };
+
+        // Tower Skins
+        const towerSkins = [
+            { id: 'golden_basic', name: 'Goldener Basic Tower', type: 'tower_skin', rarity: 'epic', price: 150, description: 'Glänzender goldener Tower mit +10% Schaden' },
+            { id: 'ice_crystal', name: 'Eiskristall Tower', type: 'tower_skin', rarity: 'rare', price: 100, description: 'Kristalliner Ice Tower mit Schnee-Effekt' },
+            { id: 'fire_demon', name: 'Feuer-Dämon Tower', type: 'tower_skin', rarity: 'legendary', price: 300, description: 'Dämonischer Fire Tower mit Flammen-Aura' },
+            { id: 'lightning_storm', name: 'Sturm-Blitz Tower', type: 'tower_skin', rarity: 'epic', price: 200, description: 'Lightning Tower mit Sturm-Effekten' },
+            { id: 'toxic_waste', name: 'Giftmüll Tower', type: 'tower_skin', rarity: 'rare', price: 120, description: 'Poison Tower mit Giftblasen' },
+            { id: 'cyber_sniper', name: 'Cyber Sniper', type: 'tower_skin', rarity: 'legendary', price: 400, description: 'Futuristischer Sniper mit Laser-Visier' }
+        ];
+
+        // Background Themes
+        const backgrounds = [
+            { id: 'space_battle', name: 'Weltraum Schlacht', type: 'background', rarity: 'epic', price: 250, description: 'Spektakulärer Weltraum-Hintergrund' },
+            { id: 'medieval_castle', name: 'Mittelalterliche Burg', type: 'background', rarity: 'rare', price: 180, description: 'Klassischer Burg-Hintergrund' },
+            { id: 'neon_city', name: 'Neon City', type: 'background', rarity: 'legendary', price: 350, description: 'Cyberpunk-Stadt mit Neon-Lichtern' },
+            { id: 'tropical_island', name: 'Tropische Insel', type: 'background', rarity: 'common', price: 80, description: 'Entspannende Tropeninsel' }
+        ];
+
+        // Power-Up Items
+        const powerUps = [
+            { id: 'damage_boost_30min', name: 'Schaden Boost (30min)', type: 'powerup', rarity: 'common', price: 50, description: '+50% Schaden für 30 Minuten' },
+            { id: 'gold_magnet_1hour', name: 'Gold Magnet (1h)', type: 'powerup', rarity: 'rare', price: 100, description: '+100% Gold für 1 Stunde' },
+            { id: 'wave_skip', name: 'Wellen Skipper', type: 'powerup', rarity: 'epic', price: 200, description: 'Überspringe die nächste Welle' },
+            { id: 'instant_upgrade', name: 'Sofort Upgrade', type: 'powerup', rarity: 'rare', price: 150, description: 'Upgrade einen Tower sofort auf Level 5' }
+        ];
+
+        // Projektil-Effekte
+        const projectileEffects = [
+            { id: 'rainbow_trail', name: 'Regenbogen Spur', type: 'projectile_effect', rarity: 'rare', price: 90, description: 'Projektile hinterlassen Regenbogen-Spuren' },
+            { id: 'star_burst', name: 'Sternen Explosion', type: 'projectile_effect', rarity: 'epic', price: 180, description: 'Projektile explodieren in Sternen' },
+            { id: 'lightning_chain', name: 'Blitz Kette', type: 'projectile_effect', rarity: 'legendary', price: 280, description: 'Alle Projektile haben Chain Lightning' }
+        ];
+
+        const allItems = [...towerSkins, ...backgrounds, ...powerUps, ...projectileEffects];
+
+        // Daily Deals (3 zufällige Items mit Rabatt)
+        for (let i = 0; i < 3; i++) {
+            const item = allItems[Math.floor(Math.random() * allItems.length)];
+            marketplace.dailyDeals.push({
+                ...item,
+                originalPrice: item.price,
+                price: Math.floor(item.price * 0.7), // 30% Rabatt
+                discount: 30
+            });
+        }
+
+        // Featured Items (Premium Items)
+        const legendaryItems = allItems.filter(item => item.rarity === 'legendary');
+        marketplace.featuredItems = legendaryItems.slice(0, 2);
+
+        // Regular Items (6 zufällige Items)
+        const regularItemsPool = allItems.filter(item => item.rarity !== 'legendary');
+        for (let i = 0; i < 6; i++) {
+            const item = regularItemsPool[Math.floor(Math.random() * regularItemsPool.length)];
+            if (!marketplace.regularItems.find(existing => existing.id === item.id)) {
+                marketplace.regularItems.push(item);
+            }
+        }
+
+        return marketplace;
+    }
+
+    refreshMarketplace() {
+        const today = new Date().toDateString();
+        
+        if (!this.marketplace.lastRefresh || this.marketplace.lastRefresh !== today) {
+            this.marketplace = this.generateMarketplace();
+            this.saveMarketplace();
+        }
+    }
+
+    saveInventory() {
+        localStorage.setItem('rushRoyalInventory', JSON.stringify(this.inventory));
+    }
+
+    saveMarketplace() {
+        localStorage.setItem('rushRoyalMarketplace', JSON.stringify(this.marketplace));
+    }
+
+    showTradingSystem() {
+        const modal = document.getElementById('tradingModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            this.updateTradingDisplay();
+        }
+    }
+
+    updateTradingDisplay() {
+        this.updateCurrencyDisplay();
+        this.updateMarketplaceDisplay();
+        this.updateInventoryDisplay();
+    }
+
+    updateCurrencyDisplay() {
+        const coinsElement = document.getElementById('playerCoins');
+        const gemsElement = document.getElementById('playerGems');
+        
+        if (coinsElement) coinsElement.textContent = this.inventory.currency.coins.toLocaleString();
+        if (gemsElement) gemsElement.textContent = this.inventory.currency.gems.toLocaleString();
+    }
+
+    updateMarketplaceDisplay() {
+        this.updateDailyDeals();
+        this.updateFeaturedItems();
+        this.updateRegularItems();
+    }
+
+    updateDailyDeals() {
+        const container = document.getElementById('dailyDealsContainer');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        this.marketplace.dailyDeals.forEach(item => {
+            const itemCard = this.createMarketplaceItemCard(item, true);
+            container.appendChild(itemCard);
+        });
+    }
+
+    updateFeaturedItems() {
+        const container = document.getElementById('featuredItemsContainer');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        this.marketplace.featuredItems.forEach(item => {
+            const itemCard = this.createMarketplaceItemCard(item, false);
+            container.appendChild(itemCard);
+        });
+    }
+
+    updateRegularItems() {
+        const container = document.getElementById('regularItemsContainer');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        this.marketplace.regularItems.forEach(item => {
+            const itemCard = this.createMarketplaceItemCard(item, false);
+            container.appendChild(itemCard);
+        });
+    }
+
+    createMarketplaceItemCard(item, isDailyDeal = false) {
+        const card = document.createElement('div');
+        card.className = `marketplace-item-card rarity-${item.rarity}`;
+        
+        const rarityColors = {
+            common: '#95a5a6',
+            rare: '#3498db',
+            epic: '#9b59b6',
+            legendary: '#f39c12'
+        };
+
+        card.innerHTML = `
+            <div class="item-image" style="background: linear-gradient(135deg, ${rarityColors[item.rarity]}, ${this.adjustColorBrightness(rarityColors[item.rarity], -20)});">
+                <i class="fas ${this.getItemIcon(item.type)}"></i>
+            </div>
+            <div class="item-info">
+                <h4 class="item-name">${item.name}</h4>
+                <div class="item-rarity rarity-${item.rarity}">${this.capitalizeFirst(item.rarity)}</div>
+                <p class="item-description">${item.description}</p>
+                <div class="item-price">
+                    ${isDailyDeal ? `
+                        <span class="original-price">${item.originalPrice}</span>
+                        <span class="discounted-price">${item.price} <i class="fas fa-coins"></i></span>
+                        <span class="discount-badge">-${item.discount}%</span>
+                    ` : `
+                        <span class="price">${item.price} <i class="fas fa-coins"></i></span>
+                    `}
+                </div>
+                <button class="buy-btn" onclick="game.purchaseItem('${item.id}', ${item.price})" 
+                        ${this.inventory.currency.coins < item.price ? 'disabled' : ''}>
+                    ${this.inventory.currency.coins >= item.price ? 'Kaufen' : 'Nicht genug Gold'}
+                </button>
+            </div>
+        `;
+
+        return card;
+    }
+
+    getItemIcon(type) {
+        const icons = {
+            tower_skin: 'fa-chess-rook',
+            background: 'fa-image',
+            powerup: 'fa-bolt',
+            projectile_effect: 'fa-magic'
+        };
+        return icons[type] || 'fa-gift';
+    }
+
+    adjustColorBrightness(color, amount) {
+        const clamp = (val) => Math.min(Math.max(val, 0), 255);
+        const fill = (str) => ('00' + str).slice(-2);
+        
+        const num = parseInt(color.replace("#", ""), 16);
+        const red = clamp((num >> 16) + amount);
+        const green = clamp(((num >> 8) & 0x00FF) + amount);
+        const blue = clamp((num & 0x0000FF) + amount);
+        
+        return "#" + fill(red.toString(16)) + fill(green.toString(16)) + fill(blue.toString(16));
+    }
+
+    capitalizeFirst(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    purchaseItem(itemId, price) {
+        // Finde das Item im Marktplatz
+        let item = null;
+        
+        // Suche in allen Marktplatz-Kategorien
+        const allMarketplaceItems = [
+            ...this.marketplace.dailyDeals,
+            ...this.marketplace.featuredItems,
+            ...this.marketplace.regularItems
+        ];
+        
+        item = allMarketplaceItems.find(i => i.id === itemId);
+        
+        if (!item) {
+            this.showMessage('Item nicht gefunden!', 'error');
+            return;
+        }
+
+        // Prüfe ob genug Währung vorhanden
+        if (this.inventory.currency.coins < price) {
+            this.showMessage('Nicht genug Gold!', 'error');
+            return;
+        }
+
+        // Prüfe ob Item bereits besessen wird
+        if (this.ownsItem(itemId)) {
+            this.showMessage('Du besitzt dieses Item bereits!', 'error');
+            return;
+        }
+
+        // Kaufe das Item
+        this.inventory.currency.coins -= price;
+        this.addItemToInventory(item);
+        
+        // Speichere Änderungen
+        this.saveInventory();
+        
+        // Update UI
+        this.updateTradingDisplay();
+        
+        // Erfolgs-Nachricht
+        this.showMessage(`${item.name} erfolgreich gekauft!`, 'success');
+        
+        // Statistik aktualisieren
+        this.updateStatistic('itemsPurchased', 1);
+        this.updateStatistic('totalGoldSpent', price);
+    }
+
+    ownsItem(itemId) {
+        const allOwnedItems = [
+            ...this.inventory.skins.towers,
+            ...this.inventory.skins.backgrounds,
+            ...this.inventory.skins.projectiles,
+            ...this.inventory.items.powerUps,
+            ...this.inventory.items.boosters,
+            ...this.inventory.items.decorations
+        ];
+        
+        return allOwnedItems.some(item => item.id === itemId);
+    }
+
+    addItemToInventory(item) {
+        switch(item.type) {
+            case 'tower_skin':
+                this.inventory.skins.towers.push(item);
+                break;
+            case 'background':
+                this.inventory.skins.backgrounds.push(item);
+                break;
+            case 'projectile_effect':
+                this.inventory.skins.projectiles.push(item);
+                break;
+            case 'powerup':
+                this.inventory.items.powerUps.push(item);
+                break;
+            default:
+                this.inventory.items.boosters.push(item);
+        }
+    }
+
+    updateInventoryDisplay() {
+        this.updateInventoryTab('towers', this.inventory.skins.towers);
+        this.updateInventoryTab('backgrounds', this.inventory.skins.backgrounds);
+        this.updateInventoryTab('effects', this.inventory.skins.projectiles);
+        this.updateInventoryTab('items', [...this.inventory.items.powerUps, ...this.inventory.items.boosters]);
+    }
+
+    updateInventoryTab(tabName, items) {
+        const container = document.getElementById(`inventory${this.capitalizeFirst(tabName)}Container`);
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        if (items.length === 0) {
+            container.innerHTML = '<div class="empty-inventory">Keine Items vorhanden</div>';
+            return;
+        }
+
+        items.forEach(item => {
+            const itemCard = this.createInventoryItemCard(item);
+            container.appendChild(itemCard);
+        });
+    }
+
+    createInventoryItemCard(item) {
+        const card = document.createElement('div');
+        card.className = `inventory-item-card rarity-${item.rarity}`;
+        
+        const rarityColors = {
+            common: '#95a5a6',
+            rare: '#3498db',
+            epic: '#9b59b6',
+            legendary: '#f39c12'
+        };
+
+        const isEquipped = this.isItemEquipped(item.id);
+
+        card.innerHTML = `
+            <div class="item-image" style="background: linear-gradient(135deg, ${rarityColors[item.rarity]}, ${this.adjustColorBrightness(rarityColors[item.rarity], -20)});">
+                <i class="fas ${this.getItemIcon(item.type)}"></i>
+                ${isEquipped ? '<div class="equipped-badge">Ausgerüstet</div>' : ''}
+            </div>
+            <div class="item-info">
+                <h4 class="item-name">${item.name}</h4>
+                <div class="item-rarity rarity-${item.rarity}">${this.capitalizeFirst(item.rarity)}</div>
+                <p class="item-description">${item.description}</p>
+                <div class="item-actions">
+                    ${this.getItemActionButtons(item)}
+                </div>
+            </div>
+        `;
+
+        return card;
+    }
+
+    isItemEquipped(itemId) {
+        // Prüfe ob Item aktuell ausgerüstet ist
+        const equippedItems = this.getEquippedItems();
+        return Object.values(equippedItems).includes(itemId);
+    }
+
+    getEquippedItems() {
+        const savedEquipped = localStorage.getItem('rushRoyalEquippedItems');
+        return savedEquipped ? JSON.parse(savedEquipped) : {
+            towerSkin: null,
+            background: null,
+            projectileEffect: null
+        };
+    }
+
+    getItemActionButtons(item) {
+        const isEquipped = this.isItemEquipped(item.id);
+        
+        if (item.type === 'powerup') {
+            return `<button class="use-btn" onclick="game.useItem('${item.id}')">Verwenden</button>`;
+        } else {
+            return `
+                <button class="equip-btn" onclick="game.${isEquipped ? 'unequip' : 'equip'}Item('${item.id}')" 
+                        ${isEquipped ? 'disabled' : ''}>
+                    ${isEquipped ? 'Ausgerüstet' : 'Ausrüsten'}
+                </button>
+            `;
+        }
+    }
+
+    equipItem(itemId) {
+        const item = this.findItemInInventory(itemId);
+        if (!item) return;
+
+        const equippedItems = this.getEquippedItems();
+        
+        // Bestimme den Slot basierend auf Item-Typ
+        let slot = null;
+        switch(item.type) {
+            case 'tower_skin':
+                slot = 'towerSkin';
+                break;
+            case 'background':
+                slot = 'background';
+                break;
+            case 'projectile_effect':
+                slot = 'projectileEffect';
+                break;
+        }
+
+        if (slot) {
+            equippedItems[slot] = itemId;
+            localStorage.setItem('rushRoyalEquippedItems', JSON.stringify(equippedItems));
+            this.updateInventoryDisplay();
+            this.showMessage(`${item.name} ausgerüstet!`, 'success');
+            
+            // Wende Effekte sofort an
+            this.applyEquippedItemEffects();
+            
+            // Update alle Tower-Statistiken wenn Tower-Skin ausgerüstet wird
+            if (item.type === 'tower_skin') {
+                this.towers.forEach(tower => tower.setStats());
+            }
+            
+            // Zeige Ausrüstungs-Tutorial beim ersten Mal
+            if (!localStorage.getItem('rushRoyalEquipTutorialShown')) {
+                this.showEquipTutorial();
+                localStorage.setItem('rushRoyalEquipTutorialShown', 'true');
+            }
+        }
+    }
+
+    unequipItem(itemId) {
+        const item = this.findItemInInventory(itemId);
+        if (!item) return;
+
+        const equippedItems = this.getEquippedItems();
+        
+        // Entferne aus dem entsprechenden Slot
+        Object.keys(equippedItems).forEach(slot => {
+            if (equippedItems[slot] === itemId) {
+                equippedItems[slot] = null;
+            }
+        });
+
+        localStorage.setItem('rushRoyalEquippedItems', JSON.stringify(equippedItems));
+        this.updateInventoryDisplay();
+        this.showMessage(`${item.name} abgelegt!`, 'info');
+        
+        // Entferne Effekte
+        this.applyEquippedItemEffects();
+    }
+
+    findItemInInventory(itemId) {
+        const allItems = [
+            ...this.inventory.skins.towers,
+            ...this.inventory.skins.backgrounds,
+            ...this.inventory.skins.projectiles,
+            ...this.inventory.items.powerUps,
+            ...this.inventory.items.boosters,
+            ...this.inventory.items.decorations
+        ];
+        
+        return allItems.find(item => item.id === itemId);
+    }
+
+    useItem(itemId) {
+        const item = this.findItemInInventory(itemId);
+        if (!item || item.type !== 'powerup') return;
+
+        // Wende Power-Up Effekte an
+        this.applyPowerUpEffect(item);
+        
+        // Entferne Item aus Inventar (einmalige Verwendung)
+        this.removeItemFromInventory(itemId);
+        
+        // Update UI
+        this.updateInventoryDisplay();
+        this.saveInventory();
+        
+        this.showMessage(`${item.name} verwendet!`, 'success');
+    }
+
+    applyPowerUpEffect(item) {
+        const duration = this.getPowerUpDuration(item.id);
+        
+        switch(item.id) {
+            case 'damage_boost_30min':
+                this.activeEffects.damageBoost = true;
+                setTimeout(() => {
+                    this.activeEffects.damageBoost = false;
+                    this.showMessage('Schaden Boost abgelaufen', 'info');
+                }, duration);
+                break;
+                
+            case 'gold_magnet_1hour':
+                this.activeEffects.goldBoost = true;
+                setTimeout(() => {
+                    this.activeEffects.goldBoost = false;
+                    this.showMessage('Gold Boost abgelaufen', 'info');
+                }, duration);
+                break;
+                
+            case 'wave_skip':
+                if (this.gameRunning && !this.waveInProgress) {
+                    this.completeWave();
+                    this.showMessage('Welle übersprungen!', 'success');
+                }
+                break;
+                
+            case 'instant_upgrade':
+                // Zeige Tower-Auswahl für Upgrade
+                this.showTowerUpgradeSelection();
+                break;
+        }
+    }
+
+    getPowerUpDuration(itemId) {
+        const durations = {
+            'damage_boost_30min': 30 * 60 * 1000, // 30 Minuten
+            'gold_magnet_1hour': 60 * 60 * 1000   // 1 Stunde
+        };
+        return durations[itemId] || 0;
+    }
+
+    removeItemFromInventory(itemId) {
+        // Entferne aus Power-Ups
+        this.inventory.items.powerUps = this.inventory.items.powerUps.filter(item => item.id !== itemId);
+        this.inventory.items.boosters = this.inventory.items.boosters.filter(item => item.id !== itemId);
+    }
+
+    showTowerUpgradeSelection() {
+        if (this.towers.length === 0) {
+            this.showMessage('Keine Tower zum Upgraden vorhanden!', 'error');
+            return;
+        }
+
+        this.showMessage('Klicke auf einen Tower zum sofortigen Upgrade auf Level 5!', 'info');
+        this.instantUpgradeMode = true;
+        
+        // Tower-Klick Handler für Instant Upgrade
+        const originalHandler = this.handleCanvasClick;
+        this.handleCanvasClick = (e) => {
+            if (this.instantUpgradeMode) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                // Finde geklickten Tower
+                for (let tower of this.towers) {
+                    const distance = Math.sqrt((x - tower.x) ** 2 + (y - tower.y) ** 2);
+                    if (distance <= tower.size) {
+                        // Upgrade Tower auf Level 5
+                        tower.level = 5;
+                        tower.setStats();
+                        this.showMessage(`${tower.type} Tower auf Level 5 upgegraded!`, 'success');
+                        this.instantUpgradeMode = false;
+                        this.handleCanvasClick = originalHandler;
+                        return;
+                    }
+                }
+                
+                // Kein Tower gefunden
+                this.showMessage('Kein Tower angeklickt!', 'error');
+            } else {
+                originalHandler.call(this, e);
+            }
+        };
+        
+        // Auto-Timeout nach 10 Sekunden
+        setTimeout(() => {
+            if (this.instantUpgradeMode) {
+                this.instantUpgradeMode = false;
+                this.handleCanvasClick = originalHandler;
+                this.showMessage('Instant Upgrade abgebrochen', 'info');
+            }
+        }, 10000);
+    }
+
+    applyEquippedItemEffects() {
+        const equippedItems = this.getEquippedItems();
+        
+        // Setze alle Effekte zurück
+        this.equippedItemEffects = {
+            damageBonus: 0,
+            goldBonus: 0,
+            visualEffects: [],
+            rangeBonus: 0,
+            speedBonus: 0
+        };
+        
+        // Wende Effekte der ausgerüsteten Items an
+        Object.values(equippedItems).forEach(itemId => {
+            if (itemId) {
+                const item = this.findItemInInventory(itemId);
+                if (item) {
+                    this.applyItemEffects(item);
+                }
+            }
+        });
+        
+        // Wende visuelle Effekte an
+        this.updateCanvasEffects();
+    }
+
+    updateCanvasEffects() {
+        const equippedItems = this.getEquippedItems();
+        const backgroundId = equippedItems.background;
+        
+        // Canvas-Filter für verschiedene Hintergründe
+        if (backgroundId) {
+            switch(backgroundId) {
+                case 'neon_city':
+                    this.canvas.style.filter = 'contrast(1.1) brightness(1.05) hue-rotate(5deg)';
+                    break;
+                case 'space_battle':
+                    this.canvas.style.filter = 'contrast(1.2) brightness(0.9) saturate(1.3)';
+                    break;
+                case 'tropical_island':
+                    this.canvas.style.filter = 'contrast(0.9) brightness(1.1) saturate(1.2) hue-rotate(-10deg)';
+                    break;
+                case 'medieval_castle':
+                    this.canvas.style.filter = 'contrast(1.1) brightness(0.85) sepia(0.2)';
+                    break;
+                default:
+                    this.canvas.style.filter = 'none';
+            }
+        } else {
+            this.canvas.style.filter = 'none';
+        }
+    }
+
+    applyItemEffects(item) {
+        // Item-spezifische Effekte
+        switch(item.id) {
+            case 'golden_basic':
+                this.equippedItemEffects.damageBonus += 0.1; // +10% Schaden
+                this.equippedItemEffects.goldBonus += 0.05; // +5% Gold
+                break;
+            case 'ice_crystal':
+                this.equippedItemEffects.rangeBonus += 0.1; // +10% Reichweite für Ice Tower
+                break;
+            case 'fire_demon':
+                this.equippedItemEffects.damageBonus += 0.15; // +15% Schaden
+                this.equippedItemEffects.speedBonus += 0.1; // +10% Feuerrate
+                break;
+            case 'lightning_storm':
+                this.equippedItemEffects.damageBonus += 0.12; // +12% Schaden
+                this.equippedItemEffects.rangeBonus += 0.15; // +15% Reichweite
+                break;
+            case 'toxic_waste':
+                this.equippedItemEffects.damageBonus += 0.08; // +8% Schaden (Poison fokussiert auf DOT)
+                break;
+            case 'cyber_sniper':
+                this.equippedItemEffects.damageBonus += 0.2; // +20% Schaden
+                this.equippedItemEffects.rangeBonus += 0.25; // +25% Reichweite
+                break;
+            case 'space_battle':
+                this.equippedItemEffects.visualEffects.push('space_theme');
+                break;
+            case 'medieval_castle':
+                this.equippedItemEffects.visualEffects.push('medieval_theme');
+                break;
+            case 'neon_city':
+                this.equippedItemEffects.visualEffects.push('cyberpunk_theme');
+                this.equippedItemEffects.damageBonus += 0.05; // Cyberpunk Bonus
+                break;
+            case 'tropical_island':
+                this.equippedItemEffects.visualEffects.push('tropical_theme');
+                this.equippedItemEffects.goldBonus += 0.1; // Entspannungsbonus
+                break;
+            case 'rainbow_trail':
+                this.equippedItemEffects.visualEffects.push('rainbow');
+                this.equippedItemEffects.speedBonus += 0.05; // Schnellere Projektile
+                break;
+            case 'star_burst':
+                this.equippedItemEffects.visualEffects.push('star_effects');
+                this.equippedItemEffects.damageBonus += 0.08; // Sternen-Power
+                break;
+            case 'lightning_chain':
+                this.equippedItemEffects.visualEffects.push('chain_lightning');
+                this.equippedItemEffects.damageBonus += 0.1; // Blitz-Power
+                break;
+        }
+    }
+
+    // Erweitere Gold-Belohnung basierend auf ausgerüsteten Items
+    addGold(amount) {
+        let finalAmount = amount;
+        
+        // Gold Boost von Power-Ups
+        if (this.activeEffects.goldBoost) {
+            finalAmount *= 2;
+        }
+        
+        // Gold Bonus von ausgerüsteten Items
+        if (this.equippedItemEffects && this.equippedItemEffects.goldBonus) {
+            finalAmount *= (1 + this.equippedItemEffects.goldBonus);
+        }
+        
+        this.money += Math.floor(finalAmount);
+        this.goldEarned += Math.floor(finalAmount);
+        
+        // Update Trading-Währung
+        if (this.inventory) {
+            this.inventory.currency.coins += Math.floor(finalAmount * 0.1); // 10% des Goldes wird zu Trading-Coins
+            this.saveInventory();
+        }
+        
+        // Zeige visuelles Feedback für Gold-Erhalt
+        this.showGoldGainEffect(finalAmount);
+    }
+
+    showGoldGainEffect(amount) {
+        // Zeige fliegenden Gold-Text
+        const goldText = document.createElement('div');
+        goldText.textContent = `+${Math.floor(amount)}`;
+        goldText.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 200px;
+            color: #FFD700;
+            font-weight: bold;
+            font-size: 18px;
+            pointer-events: none;
+            z-index: 1000;
+            animation: flyUpGold 2s ease-out forwards;
+        `;
+        
+        // CSS Animation hinzufügen falls noch nicht vorhanden
+        if (!document.getElementById('goldAnimation')) {
+            const style = document.createElement('style');
+            style.id = 'goldAnimation';
+            style.textContent = `
+                @keyframes flyUpGold {
+                    0% { 
+                        transform: translateY(0); 
+                        opacity: 1; 
+                    }
+                    100% { 
+                        transform: translateY(-50px); 
+                        opacity: 0; 
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        document.body.appendChild(goldText);
+        
+        setTimeout(() => {
+            if (goldText.parentNode) {
+                goldText.parentNode.removeChild(goldText);
+            }
+        }, 2000);
+    }
+
+    showTradingTutorial() {
+        const tutorial = document.createElement('div');
+        tutorial.className = 'trading-tutorial-overlay';
+        tutorial.innerHTML = `
+            <div class="tutorial-content">
+                <h2><i class="fas fa-store"></i> Willkommen im Trading System!</h2>
+                <div class="tutorial-steps">
+                    <div class="step">
+                        <i class="fas fa-coins"></i>
+                        <h3>Sammle Gold</h3>
+                        <p>Verdiene Gold im Spiel und tausche es gegen Trading-Coins ein</p>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-shopping-cart"></i>
+                        <h3>Kaufe Items</h3>
+                        <p>Kaufe Skins, Hintergründe und Power-Ups im Marktplatz</p>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-tshirt"></i>
+                        <h3>Rüste Items aus</h3>
+                        <p>Verbessere dein Spiel mit Skins und Effekten</p>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-bolt"></i>
+                        <h3>Verwende Power-Ups</h3>
+                        <p>Nutze Power-Ups für temporäre Boni im Spiel</p>
+                    </div>
+                </div>
+                <button onclick="this.parentElement.parentElement.remove()" class="tutorial-close-btn">
+                    Verstanden!
+                </button>
+            </div>
+        `;
+        
+        tutorial.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            backdrop-filter: blur(10px);
+        `;
+        
+        document.body.appendChild(tutorial);
+    }
+
+    showEquipTutorial() {
+        const tutorial = document.createElement('div');
+        tutorial.className = 'equip-tutorial-overlay';
+        tutorial.innerHTML = `
+            <div class="tutorial-content">
+                <h2><i class="fas fa-tshirt"></i> Item erfolgreich ausgerüstet!</h2>
+                <div class="tutorial-info">
+                    <div class="info-item">
+                        <i class="fas fa-magic"></i>
+                        <div>
+                            <h3>Sofortige Effekte</h3>
+                            <p>Deine ausgerüsteten Items wirken sich sofort auf dein Spiel aus!</p>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-chess-rook"></i>
+                        <div>
+                            <h3>Tower Skins</h3>
+                            <p>Verbessern Schaden, Reichweite oder Feuerrate deiner Tower</p>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-image"></i>
+                        <div>
+                            <h3>Hintergründe</h3>
+                            <p>Verändern die Spielatmosphäre und bieten teilweise Boni</p>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-sparkles"></i>
+                        <div>
+                            <h3>Projektil-Effekte</h3>
+                            <p>Machen deine Angriffe visuell spektakulärer und effektiver</p>
+                        </div>
+                    </div>
+                </div>
+                <button onclick="this.parentElement.parentElement.remove()" class="tutorial-close-btn">
+                    <i class="fas fa-check"></i>
+                    Verstanden!
+                </button>
+            </div>
+        `;
+        
+        tutorial.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            backdrop-filter: blur(10px);
+        `;
+        
+        document.body.appendChild(tutorial);
+        
+        setTimeout(() => {
+            tutorial.style.opacity = '0';
+            setTimeout(() => {
+                if (tutorial.parentNode) {
+                    tutorial.parentNode.removeChild(tutorial);
+                }
+            }, 300);
+        }, 5000);
+    }
+
     gameOver() {
         this.gameRunning = false;
         
@@ -3606,7 +5049,12 @@ class Game {
             if (finalGold) finalGold.textContent = this.goldEarned.toLocaleString();
             if (finalKills) finalKills.textContent = this.totalKills.toLocaleString();
             
-            gameOverScreen.style.display = 'flex';
+            // Check if in test mode and modify buttons accordingly
+            if (this.testModeData) {
+                this.showTestModeGameOver();
+            } else {
+                gameOverScreen.style.display = 'flex';
+            }
             
             // Animation für den Game Over Screen
             setTimeout(() => {
@@ -3628,6 +5076,175 @@ class Game {
             `;
             document.body.appendChild(gameOverDiv);
         }
+    }
+
+    showTestModeGameOver() {
+        // Create custom test mode game over screen
+        const testGameOverDiv = document.createElement('div');
+        testGameOverDiv.className = 'test-game-over-screen';
+        testGameOverDiv.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            backdrop-filter: blur(10px);
+        `;
+        
+        testGameOverDiv.innerHTML = `
+            <div style="
+                background: linear-gradient(135deg, #2c3e50, #3498db);
+                padding: 3rem;
+                border-radius: 15px;
+                text-align: center;
+                max-width: 500px;
+                color: white;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+                border: 2px solid rgba(255,255,255,0.1);
+            ">
+                <div style="
+                    background: rgba(52, 152, 219, 0.2);
+                    padding: 1rem;
+                    border-radius: 10px;
+                    margin-bottom: 2rem;
+                    border: 1px solid rgba(52, 152, 219, 0.3);
+                ">
+                    <h2 style="
+                        margin: 0 0 0.5rem 0;
+                        color: #3498db;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 0.5rem;
+                    ">
+                        <i class="fas fa-flask"></i>
+                        Map Test Abgeschlossen
+                    </h2>
+                    <p style="margin: 0; opacity: 0.9;">Deine Custom Map wurde getestet!</p>
+                </div>
+                
+                <div style="
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 1rem;
+                    margin-bottom: 2rem;
+                    text-align: left;
+                ">
+                    <div style="background: rgba(255,255,255,0.1); padding: 1rem; border-radius: 8px;">
+                        <div style="color: #f39c12; font-weight: bold; margin-bottom: 0.5rem;">
+                            <i class="fas fa-wave-square"></i> Erreichte Welle
+                        </div>
+                        <div style="font-size: 1.8rem; font-weight: bold;">${this.wave}</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.1); padding: 1rem; border-radius: 8px;">
+                        <div style="color: #e74c3c; font-weight: bold; margin-bottom: 0.5rem;">
+                            <i class="fas fa-skull"></i> Kills
+                        </div>
+                        <div style="font-size: 1.8rem; font-weight: bold;">${this.totalKills}</div>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 1rem; justify-content: center;">
+                    <button onclick="game.restartTestMap()" style="
+                        background: var(--accent-green);
+                        color: white;
+                        border: none;
+                        padding: 0.8rem 1.5rem;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-weight: bold;
+                        display: flex;
+                        align-items: center;
+                        gap: 0.5rem;
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                        <i class="fas fa-redo"></i>
+                        Nochmal testen
+                    </button>
+                    <button onclick="game.exitTestMode(); document.body.removeChild(document.querySelector('.test-game-over-screen'))" style="
+                        background: var(--primary-blue);
+                        color: white;
+                        border: none;
+                        padding: 0.8rem 1.5rem;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-weight: bold;
+                        display: flex;
+                        align-items: center;
+                        gap: 0.5rem;
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                        <i class="fas fa-edit"></i>
+                        Zurück zum Editor
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(testGameOverDiv);
+        
+        // Add fade-in animation
+        setTimeout(() => {
+            testGameOverDiv.style.opacity = '1';
+        }, 100);
+    }
+
+    restartTestMap() {
+        // Remove test game over screen
+        const testGameOverScreen = document.querySelector('.test-game-over-screen');
+        if (testGameOverScreen) {
+            testGameOverScreen.remove();
+        }
+        
+        // Restart the test game
+        this.restartGame();
+        
+        // Show test notification again
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #f39c12, #e67e22);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            z-index: 10000;
+            font-weight: 500;
+            box-shadow: var(--shadow-lg);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            text-align: center;
+            min-width: 300px;
+        `;
+        notification.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: center;">
+                <i class="fas fa-flask"></i>
+                <strong>MAP TEST MODUS</strong>
+            </div>
+            <div style="font-size: 0.9rem; margin-top: 0.3rem; opacity: 0.9;">
+                Teste deine Map erneut! Drücke ESC um zum Editor zurückzukehren.
+            </div>
+        `;
+        document.body.appendChild(notification);
+        
+        // Update test mode data
+        if (this.testModeData) {
+            this.testModeData.notification = notification;
+        }
+        
+        // Auto-fade notification
+        setTimeout(() => {
+            if (notification && notification.parentNode) {
+                notification.style.opacity = '0.7';
+                notification.style.transform = 'translateX(-50%) scale(0.9)';
+            }
+        }, 5000);
     }
     
     restartGameFromGameOver() {
@@ -3696,6 +5313,13 @@ class Tower {
         this.chain = baseStat.chain;
         this.poison = baseStat.poison;
         this.stun = baseStat.stun;
+        
+        // Wende ausgerüstete Item-Effekte an
+        if (game && game.equippedItemEffects) {
+            this.damage *= (1 + game.equippedItemEffects.damageBonus);
+            this.range *= (1 + game.equippedItemEffects.rangeBonus);
+            this.speed /= (1 + game.equippedItemEffects.speedBonus); // Geringere Zeit = höhere Feuerrate
+        }
     }
     
     upgrade() {
@@ -3732,11 +5356,52 @@ class Tower {
     }
     
     draw(ctx) {
-        // Tower-Basis
-        ctx.fillStyle = this.getColor();
+        // Prüfe ob ein Tower-Skin ausgerüstet ist
+        const equippedItems = game.getEquippedItems();
+        const towerSkinId = equippedItems.towerSkin;
+        
+        // Tower-Basis mit Skin oder Standard-Farbe
+        if (towerSkinId && this.type === 'basic' && towerSkinId === 'golden_basic') {
+            // Goldener Basic Tower
+            const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+            gradient.addColorStop(0, '#FFD700');
+            gradient.addColorStop(0.5, '#FFA500');
+            gradient.addColorStop(1, '#B8860B');
+            ctx.fillStyle = gradient;
+        } else if (towerSkinId && this.type === 'ice' && towerSkinId === 'ice_crystal') {
+            // Eiskristall Tower
+            const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+            gradient.addColorStop(0, '#E0FFFF');
+            gradient.addColorStop(0.5, '#87CEEB');
+            gradient.addColorStop(1, '#4682B4');
+            ctx.fillStyle = gradient;
+        } else if (towerSkinId && this.type === 'fire' && towerSkinId === 'fire_demon') {
+            // Feuer-Dämon Tower
+            const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+            gradient.addColorStop(0, '#FF6347');
+            gradient.addColorStop(0.5, '#FF4500');
+            gradient.addColorStop(1, '#8B0000');
+            ctx.fillStyle = gradient;
+        } else if (towerSkinId && this.type === 'sniper' && towerSkinId === 'cyber_sniper') {
+            // Cyber Sniper
+            const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+            gradient.addColorStop(0, '#00FFFF');
+            gradient.addColorStop(0.5, '#0080FF');
+            gradient.addColorStop(1, '#000080');
+            ctx.fillStyle = gradient;
+        } else {
+            // Standard Tower-Farbe
+            ctx.fillStyle = this.getColor();
+        }
+        
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
         ctx.fill();
+        
+        // Spezielle Effekte für Skins
+        if (towerSkinId) {
+            this.drawSkinEffects(ctx, towerSkinId);
+        }
         
         ctx.strokeStyle = '#333';
         ctx.lineWidth = 2;
@@ -3747,6 +5412,64 @@ class Tower {
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
         ctx.fillText(this.level, this.x, this.y + 4);
+    }
+    
+    drawSkinEffects(ctx, skinId) {
+        switch(skinId) {
+            case 'golden_basic':
+                // Goldener Glanz-Effekt
+                ctx.shadowColor = '#FFD700';
+                ctx.shadowBlur = 10;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                break;
+                
+            case 'ice_crystal':
+                // Eiskristall-Effekt
+                ctx.strokeStyle = '#E0FFFF';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([3, 3]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                break;
+                
+            case 'fire_demon':
+                // Flammen-Aura
+                ctx.shadowColor = '#FF4500';
+                ctx.shadowBlur = 15;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                
+                // Kleine Flammen-Partikel
+                for (let i = 0; i < 3; i++) {
+                    const angle = (Date.now() * 0.01 + i * 2) % (Math.PI * 2);
+                    const flameCx = this.x + Math.cos(angle) * (this.size + 5);
+                    const flameCy = this.y + Math.sin(angle) * (this.size + 5);
+                    
+                    ctx.fillStyle = `rgba(255, ${69 + Math.sin(Date.now() * 0.01) * 50}, 0, 0.7)`;
+                    ctx.beginPath();
+                    ctx.arc(flameCx, flameCy, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                break;
+                
+            case 'cyber_sniper':
+                // Cyber-Laser-Visier
+                ctx.strokeStyle = '#00FFFF';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 2]);
+                
+                // Laser-Linie zu nächstem Feind (falls vorhanden)
+                if (game.enemies.length > 0) {
+                    const nearestEnemy = game.enemies[0]; // Vereinfacht
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(nearestEnemy.x, nearestEnemy.y);
+                    ctx.stroke();
+                }
+                ctx.setLineDash([]);
+                break;
+        }
     }
     
     getColor() {
@@ -3778,6 +5501,11 @@ class Enemy {
         this.poisonDamage = 0;
         this.poisonDuration = 0;
         this.stunDuration = 0;
+        
+        // Multiplayer properties
+        this.isPvPEnemy = false;
+        this.sentByPlayer = null;
+        this.freezeTime = 0;
         
         this.setStats(wave);
     }
@@ -3848,6 +5576,12 @@ class Enemy {
     }
     
     update() {
+        // Freeze-Effekt von Coop-Fähigkeiten
+        if (this.freezeTime > 0) {
+            this.freezeTime -= 1000/60; // Reduziere basierend auf FPS
+            return;
+        }
+        
         // Stun-Effekt - Gegner kann sich nicht bewegen
         if (this.stunDuration > 0) {
             this.stunDuration--;
@@ -4298,10 +6032,89 @@ class Projectile {
     }
     
     draw(ctx) {
-        ctx.fillStyle = this.getProjectileColor();
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
-        ctx.fill();
+        // Prüfe ob Projektil-Effekte ausgerüstet sind
+        const equippedItems = game.getEquippedItems();
+        const projectileEffectId = equippedItems.projectileEffect;
+        
+        if (projectileEffectId === 'rainbow_trail') {
+            // Regenbogen-Spur
+            const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 8);
+            const hue = (Date.now() * 0.1 + this.x + this.y) % 360;
+            gradient.addColorStop(0, `hsl(${hue}, 100%, 70%)`);
+            gradient.addColorStop(1, `hsl(${(hue + 60) % 360}, 100%, 50%)`);
+            ctx.fillStyle = gradient;
+            
+            // Größeres Projektil für besseren Effekt
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Spur-Effekt
+            ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
+            ctx.shadowBlur = 10;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+        } else if (projectileEffectId === 'star_burst') {
+            // Sternen-Explosion Effekt
+            ctx.fillStyle = '#FFD700';
+            
+            // Stern-Form zeichnen
+            const spikes = 5;
+            const outerRadius = 4;
+            const innerRadius = 2;
+            
+            ctx.beginPath();
+            for (let i = 0; i < spikes * 2; i++) {
+                const angle = (i * Math.PI) / spikes;
+                const radius = i % 2 === 0 ? outerRadius : innerRadius;
+                const x = this.x + Math.cos(angle) * radius;
+                const y = this.y + Math.sin(angle) * radius;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.closePath();
+            ctx.fill();
+            
+            // Glitzer-Effekt
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 8;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+        } else if (projectileEffectId === 'lightning_chain') {
+            // Blitz-Ketten Effekt
+            ctx.fillStyle = '#00FFFF';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Elektrische Aura
+            ctx.strokeStyle = '#00FFFF';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 2]);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 8, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Blitz-Effekt
+            ctx.shadowColor = '#00FFFF';
+            ctx.shadowBlur = 12;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+        } else {
+            // Standard-Projektil
+            ctx.fillStyle = this.getProjectileColor();
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
     
     getProjectileColor() {
@@ -4515,6 +6328,1646 @@ function resetStatistics() {
     }
 }
 
+// Map Editor Klasse
+class MapEditor {
+    constructor() {
+        this.canvas = null;
+        this.ctx = null;
+        this.isDrawing = false;
+        this.currentTool = 'draw';
+        this.pathPoints = [];
+        this.gridSize = 25;
+        this.canvasWidth = 800;
+        this.canvasHeight = 600;
+    }
+
+    initialize() {
+        this.canvas = document.getElementById('mapEditorCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        
+        this.setupEventListeners();
+        this.clearCanvas();
+        this.drawGrid();
+    }
+
+    setupEventListeners() {
+        // Tool buttons
+        document.getElementById('drawPathTool').addEventListener('click', () => this.setTool('draw'));
+        document.getElementById('eraseTool').addEventListener('click', () => this.setTool('erase'));
+        document.getElementById('clearAll').addEventListener('click', () => this.clearAll());
+        
+        // Action buttons
+        document.getElementById('testMap').addEventListener('click', () => this.testMap());
+        document.getElementById('saveMap').addEventListener('click', () => this.saveMap());
+        
+        // Canvas events
+        this.canvas.addEventListener('click', (e) => this.handleCanvasClick(e));
+        this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    setTool(tool) {
+        this.currentTool = tool;
+        
+        // Update tool button states
+        document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(tool === 'draw' ? 'drawPathTool' : 'eraseTool').classList.add('active');
+        
+        // Update cursor
+        this.canvas.style.cursor = tool === 'draw' ? 'crosshair' : 'pointer';
+    }
+
+    handleCanvasClick(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * this.canvasWidth;
+        const y = ((e.clientY - rect.top) / rect.height) * this.canvasHeight;
+        
+        // Snap to grid
+        const snappedX = Math.round(x / this.gridSize) * this.gridSize;
+        const snappedY = Math.round(y / this.gridSize) * this.gridSize;
+        
+        if (this.currentTool === 'draw') {
+            this.addPathPoint(snappedX, snappedY);
+        } else if (this.currentTool === 'erase') {
+            this.removeNearbyPoint(snappedX, snappedY);
+        }
+        
+        this.redraw();
+    }
+
+    addPathPoint(x, y) {
+        // Check if point already exists nearby
+        const existing = this.pathPoints.find(p => 
+            Math.abs(p.x - x) < this.gridSize/2 && Math.abs(p.y - y) < this.gridSize/2
+        );
+        
+        if (!existing) {
+            this.pathPoints.push({x, y});
+        }
+    }
+
+    removeNearbyPoint(x, y) {
+        this.pathPoints = this.pathPoints.filter(p => 
+            Math.abs(p.x - x) > this.gridSize/2 || Math.abs(p.y - y) > this.gridSize/2
+        );
+    }
+
+    clearAll() {
+        if (confirm('Möchtest du wirklich alles löschen?')) {
+            this.pathPoints = [];
+            this.redraw();
+        }
+    }
+
+    clearCanvas() {
+        this.ctx.fillStyle = '#0a0a0a';
+        this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
+    }
+
+    drawGrid() {
+        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        this.ctx.lineWidth = 1;
+        
+        // Vertical lines
+        for (let x = 0; x <= this.canvasWidth; x += this.gridSize) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, 0);
+            this.ctx.lineTo(x, this.canvasHeight);
+            this.ctx.stroke();
+        }
+        
+        // Horizontal lines
+        for (let y = 0; y <= this.canvasHeight; y += this.gridSize) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, y);
+            this.ctx.lineTo(this.canvasWidth, y);
+            this.ctx.stroke();
+        }
+    }
+
+    drawPath() {
+        if (this.pathPoints.length < 2) return;
+        
+        // Draw path line
+        this.ctx.strokeStyle = '#4a90e2';
+        this.ctx.lineWidth = 4;
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.pathPoints[0].x, this.pathPoints[0].y);
+        
+        for (let i = 1; i < this.pathPoints.length; i++) {
+            this.ctx.lineTo(this.pathPoints[i].x, this.pathPoints[i].y);
+        }
+        
+        this.ctx.stroke();
+        
+        // Draw waypoints
+        this.pathPoints.forEach((point, index) => {
+            this.ctx.fillStyle = index === 0 ? '#2ecc71' : index === this.pathPoints.length - 1 ? '#e74c3c' : '#f1c40f';
+            this.ctx.beginPath();
+            this.ctx.arc(point.x, point.y, 6, 0, Math.PI * 2);
+            this.ctx.fill();
+            
+            // Draw point number
+            this.ctx.fillStyle = '#000';
+            this.ctx.font = '12px Arial';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText((index + 1).toString(), point.x, point.y + 4);
+        });
+    }
+
+    redraw() {
+        this.clearCanvas();
+        this.drawGrid();
+        this.drawPath();
+    }
+
+    validateMap() {
+        if (this.pathPoints.length < 2) {
+            return { valid: false, message: 'Der Pfad benötigt mindestens 2 Punkte.' };
+        }
+        
+        const startPoint = this.pathPoints[0];
+        const endPoint = this.pathPoints[this.pathPoints.length - 1];
+        
+        // Check if path starts from left edge and ends at right edge
+        if (startPoint.x > 50) {
+            return { valid: false, message: 'Der Pfad muss am linken Rand beginnen.' };
+        }
+        
+        if (endPoint.x < this.canvasWidth - 50) {
+            return { valid: false, message: 'Der Pfad muss am rechten Rand enden.' };
+        }
+        
+        return { valid: true, message: 'Map ist gültig!' };
+    }
+
+    testMap() {
+        const validation = this.validateMap();
+        
+        if (!validation.valid) {
+            alert(validation.message);
+            return;
+        }
+        
+        // Create temporary map for testing
+        const testMap = {
+            id: 'test_map',
+            name: document.getElementById('mapName').value.trim() || 'Test Map',
+            description: 'Test-Version deiner Custom Map',
+            difficulty: document.getElementById('mapDifficulty').value,
+            path: this.pathPoints,
+            custom: true,
+            unlocked: true,
+            isTest: true
+        };
+        
+        // Save current map temporarily and switch to test map
+        const originalMapId = game.currentMapId;
+        game.maps['test_map'] = testMap;
+        game.currentMapId = 'test_map';
+        game.loadMap('test_map');
+        
+        // Close editor and start test game
+        closeModal('mapEditorModal');
+        
+        // Start the game
+        game.startGameFromMenu();
+        
+        // Show test notification
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #f39c12, #e67e22);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            z-index: 10000;
+            font-weight: 500;
+            box-shadow: var(--shadow-lg);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            text-align: center;
+            min-width: 300px;
+        `;
+        notification.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: center;">
+                <i class="fas fa-flask"></i>
+                <strong>MAP TEST MODUS</strong>
+            </div>
+            <div style="font-size: 0.9rem; margin-top: 0.3rem; opacity: 0.9;">
+                Teste deine Map! Drücke ESC um zum Editor zurückzukehren.
+            </div>
+        `;
+        document.body.appendChild(notification);
+        
+        // Store original map ID and setup test mode
+        game.testModeData = {
+            originalMapId: originalMapId,
+            notification: notification
+        };
+        
+        // Add escape key listener for test mode
+        const escapeHandler = (e) => {
+            if (e.key === 'Escape' && game.testModeData) {
+                game.exitTestMode();
+                document.removeEventListener('keydown', escapeHandler);
+            }
+        };
+        document.addEventListener('keydown', escapeHandler);
+        
+        // Auto-remove notification after 5 seconds but keep test mode active
+        setTimeout(() => {
+            if (notification && notification.parentNode) {
+                notification.style.opacity = '0.7';
+                notification.style.transform = 'translateX(-50%) scale(0.9)';
+            }
+        }, 5000);
+    }
+
+    saveMap() {
+        const validation = this.validateMap();
+        
+        if (!validation.valid) {
+            alert(validation.message);
+            return;
+        }
+        
+        const mapName = document.getElementById('mapName').value.trim() || 'Unbenannte Map';
+        const mapDescription = document.getElementById('mapDescription').value.trim() || 'Keine Beschreibung';
+        const mapDifficulty = document.getElementById('mapDifficulty').value;
+        
+        const customMap = {
+            id: 'custom_' + Date.now(),
+            name: mapName,
+            description: mapDescription,
+            difficulty: mapDifficulty,
+            path: this.pathPoints,
+            custom: true,
+            createdAt: new Date().toISOString(),
+            unlocked: true
+        };
+        
+        // Save to localStorage
+        const savedMaps = JSON.parse(localStorage.getItem('customMaps') || '[]');
+        savedMaps.push(customMap);
+        localStorage.setItem('customMaps', JSON.stringify(savedMaps));
+        
+        alert(`Map "${mapName}" wurde erfolgreich gespeichert!`);
+        
+        // Close modal and refresh map selection
+        closeModal('mapEditorModal');
+        if (game) {
+            game.loadCustomMaps();
+        }
+    }
+
+    loadMap(map) {
+        // Load map data into editor
+        this.pathPoints = [...map.path];
+        
+        // Fill form fields
+        document.getElementById('mapName').value = map.name;
+        document.getElementById('mapDescription').value = map.description;
+        document.getElementById('mapDifficulty').value = map.difficulty;
+        
+        // Redraw
+        this.redraw();
+    }
+}
+
+// Trading System Global Functions
+function showTradingTab(tabName) {
+    // Hide all tabs
+    document.querySelectorAll('.trading-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Hide all tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Show selected tab
+    document.getElementById(tabName + 'Tab').classList.add('active');
+    event.target.classList.add('active');
+}
+
+function showInventoryTab(tabName) {
+    // Hide all inventory containers
+    document.querySelectorAll('.inventory-container').forEach(container => {
+        container.classList.remove('active');
+    });
+    
+    // Hide all inventory tab buttons
+    document.querySelectorAll('.inventory-tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Show selected container
+    document.getElementById('inventory' + game.capitalizeFirst(tabName) + 'Container').classList.add('active');
+    event.target.classList.add('active');
+}
+
+// Multiplayer Manager Klasse
+class MultiplayerManager {
+    constructor() {
+        this.mode = null; // 'coop' or 'pvp'
+        this.isHost = false;
+        this.room = null;
+        this.players = new Map();
+        this.localPlayer = null;
+        this.connection = null;
+        this.dataChannel = null;
+        this.connectionState = 'disconnected';
+        this.playerId = null;
+        this.playerName = null;
+        this.checkForGuestInterval = null;
+        this.signalingMethod = 'firebase'; // 'localStorage' or 'firebase'
+        this.firebaseConfig = {
+            // Free Firebase Realtime Database für Signaling
+            databaseURL: "https://rush-royal-signaling-default-rtdb.europe-west1.firebasedatabase.app/"
+        };
+    }
+
+    initialize() {
+        // Clean up old rooms on initialization
+        this.cleanupOldRooms();
+        
+        // Initialize Firebase for cross-device signaling
+        this.initializeFirebaseSignaling();
+        
+        this.setupEventListeners();
+        this.showModeSelection();
+        this.updateConnectionStatus('ready', 'Bereit');
+        console.log('MultiplayerManager initialized and ready');
+    }
+
+    async initializeFirebaseSignaling() {
+        try {
+            // Simple Firebase REST API implementation for signaling
+            this.firebaseURL = this.firebaseConfig.databaseURL;
+            console.log('Firebase signaling initialized');
+        } catch (error) {
+            console.warn('Firebase signaling failed, falling back to localStorage:', error);
+            this.signalingMethod = 'localStorage';
+        }
+    }
+
+    // Firebase REST API methods for cross-device signaling
+    async firebaseSet(path, data) {
+        try {
+            const response = await fetch(`${this.firebaseURL}/${path}.json`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('Firebase set error:', error);
+            throw error;
+        }
+    }
+
+    async firebaseGet(path) {
+        try {
+            const response = await fetch(`${this.firebaseURL}/${path}.json`);
+            return await response.json();
+        } catch (error) {
+            console.error('Firebase get error:', error);
+            return null;
+        }
+    }
+
+    async firebaseDelete(path) {
+        try {
+            const response = await fetch(`${this.firebaseURL}/${path}.json`, {
+                method: 'DELETE'
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('Firebase delete error:', error);
+        }
+    }
+
+    setupEventListeners() {
+        // Mode selection
+        document.querySelectorAll('.mode-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const mode = card.dataset.mode;
+                this.selectMode(mode);
+            });
+        });
+
+        // Room creation/joining
+        document.getElementById('createRoom').addEventListener('click', () => this.createRoom());
+        document.getElementById('joinRoom').addEventListener('click', () => this.joinRoom());
+        document.getElementById('startMultiplayerGame').addEventListener('click', () => this.startMultiplayerGame());
+        document.getElementById('leaveRoom').addEventListener('click', () => this.leaveRoom());
+    }
+
+    showModeSelection() {
+        document.getElementById('multiplayerModes').style.display = 'block';
+        document.getElementById('multiplayerLobby').style.display = 'none';
+        document.getElementById('waitingRoom').style.display = 'none';
+        
+        // Reset selection
+        document.querySelectorAll('.mode-card').forEach(card => {
+            card.classList.remove('selected');
+        });
+    }
+
+    selectMode(mode) {
+        this.mode = mode;
+        
+        // Update UI
+        document.querySelectorAll('.mode-card').forEach(card => {
+            card.classList.remove('selected');
+        });
+        document.querySelector(`[data-mode="${mode}"]`).classList.add('selected');
+        
+        // Show lobby after short delay
+        setTimeout(() => {
+            this.showLobby();
+        }, 500);
+    }
+
+    showLobby() {
+        document.getElementById('multiplayerModes').style.display = 'none';
+        document.getElementById('multiplayerLobby').style.display = 'block';
+        document.getElementById('waitingRoom').style.display = 'none';
+        
+        const title = this.mode === 'coop' ? 'Kooperativ Lobby' : 'PvP Lobby';
+        document.getElementById('lobbyTitle').textContent = title;
+    }
+
+    async createRoom() {
+        const roomName = document.getElementById('roomName').value.trim() || 'Mein Raum';
+        const playerName = document.getElementById('playerName').value.trim() || 'Host';
+        
+        this.updateConnectionStatus('connecting', 'Erstelle Raum...');
+        
+        try {
+            // Generate room code
+            const roomCode = this.generateRoomCode();
+            console.log('Creating room with code:', roomCode);
+            
+            // Create room object
+            this.room = {
+                code: roomCode,
+                name: roomName,
+                mode: this.mode,
+                host: playerName,
+                created: Date.now(),
+                status: 'waiting'
+            };
+            
+            this.isHost = true;
+            this.playerId = 'host';
+            this.playerName = playerName;
+            this.localPlayer = {
+                id: 'host',
+                name: playerName,
+                isHost: true,
+                ready: false
+            };
+            
+            this.players.set('host', this.localPlayer);
+            
+            // Store room using the appropriate signaling method
+            const roomDataToStore = {
+                ...this.room,
+                hostData: this.localPlayer
+            };
+            
+            if (this.signalingMethod === 'firebase') {
+                await this.firebaseSet(`rooms/${roomCode}`, roomDataToStore);
+                console.log('Room stored in Firebase:', roomCode);
+            } else {
+                // Fallback to localStorage
+                const roomKey = `room_${roomCode}`;
+                localStorage.setItem(roomKey, JSON.stringify(roomDataToStore));
+                console.log('Room stored in localStorage:', roomKey, roomDataToStore);
+            }
+            
+            // Setup WebRTC as host
+            await this.setupWebRTCHost();
+            
+            this.showWaitingRoom();
+            this.updateConnectionStatus('connected', 'Raum erstellt - Code: ' + roomCode);
+            
+        } catch (error) {
+            console.error('Error creating room:', error);
+            this.updateConnectionStatus('disconnected', 'Fehler beim Erstellen');
+            alert('Fehler beim Erstellen des Raums: ' + error.message);
+        }
+    }
+
+    async joinRoom() {
+        const roomCode = document.getElementById('roomCode').value.trim().toUpperCase();
+        const playerName = document.getElementById('joinPlayerName').value.trim() || 'Spieler';
+        
+        if (!roomCode || roomCode.length !== 9) {
+            alert('Bitte gib einen gültigen Raum Code ein (XXXX-XXXX)');
+            return;
+        }
+        
+        this.updateConnectionStatus('connecting', 'Trete Raum bei...');
+        console.log('Trying to join room with code:', roomCode);
+        
+        try {
+            let roomData = null;
+            
+            if (this.signalingMethod === 'firebase') {
+                // Try Firebase first
+                roomData = await this.firebaseGet(`rooms/${roomCode}`);
+                console.log('Firebase room data:', roomData);
+            } else {
+                // Fallback to localStorage
+                const roomKey = `room_${roomCode}`;
+                const localData = localStorage.getItem(roomKey);
+                if (localData) {
+                    roomData = JSON.parse(localData);
+                }
+                console.log('LocalStorage room data:', roomData);
+            }
+            
+            if (!roomData) {
+                // List available rooms for debugging
+                if (this.signalingMethod === 'firebase') {
+                    const allRooms = await this.firebaseGet('rooms');
+                    console.log('Available Firebase rooms:', allRooms ? Object.keys(allRooms) : 'none');
+                } else {
+                    const allKeys = Object.keys(localStorage).filter(key => key.startsWith('room_'));
+                    console.log('Available localStorage rooms:', allKeys);
+                }
+                throw new Error('Raum nicht gefunden');
+            }
+            
+            if (!roomData || roomData.status === 'started') {
+                throw new Error('Raum nicht verfügbar oder bereits gestartet');
+            }
+            
+            this.room = roomData;
+            this.isHost = false;
+            this.playerId = 'guest_' + Date.now();
+            this.playerName = playerName;
+            this.localPlayer = {
+                id: this.playerId,
+                name: playerName,
+                isHost: false,
+                ready: false
+            };
+            
+            this.players.set('host', roomData.hostData);
+            this.players.set(this.playerId, this.localPlayer);
+            
+            // Setup WebRTC as guest
+            await this.setupWebRTCGuest(roomCode);
+            
+            this.showWaitingRoom();
+            this.updateConnectionStatus('connected', 'Raum beigetreten');
+            
+        } catch (error) {
+            console.error('Error joining room:', error);
+            this.updateConnectionStatus('disconnected', 'Verbindung fehlgeschlagen');
+            alert('Fehler beim Beitreten: ' + error.message);
+        }
+    }
+
+    showWaitingRoom() {
+        document.getElementById('multiplayerLobby').style.display = 'none';
+        document.getElementById('waitingRoom').style.display = 'block';
+        
+        const title = this.isHost ? 'Warte auf Spieler...' : 'Im Raum';
+        document.getElementById('waitingRoomTitle').textContent = title;
+        
+        if (this.room) {
+            document.getElementById('displayRoomCode').textContent = this.room.code;
+        }
+        
+        this.updatePlayersDisplay();
+    }
+
+    updatePlayersDisplay() {
+        const playersGrid = document.getElementById('playersGrid');
+        playersGrid.innerHTML = '';
+        
+        this.players.forEach(player => {
+            const playerCard = document.createElement('div');
+            playerCard.className = `player-card ${player.isHost ? 'host' : ''} ${player.ready ? 'ready' : ''}`;
+            
+            playerCard.innerHTML = `
+                <div class="player-avatar">
+                    <i class="fas fa-${player.isHost ? 'crown' : 'user'}"></i>
+                </div>
+                <div class="player-name">${player.name}</div>
+                <div class="player-status">
+                    ${player.isHost ? 'Host' : player.ready ? 'Bereit' : 'Wartet...'}
+                </div>
+            `;
+            
+            playersGrid.appendChild(playerCard);
+        });
+        
+        // Update start button
+        const startBtn = document.getElementById('startMultiplayerGame');
+        const canStart = this.isHost && this.players.size >= 2 && Array.from(this.players.values()).every(p => p.ready || p.isHost);
+        startBtn.disabled = !canStart;
+    }
+
+    async setupWebRTCHost() {
+        try {
+            // Create RTCPeerConnection
+            this.connection = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            });
+
+            // Create data channel
+            this.dataChannel = this.connection.createDataChannel('gameData', {
+                ordered: true
+            });
+
+            this.setupDataChannelHandlers();
+
+            // Generate offer
+            const offer = await this.connection.createOffer();
+            await this.connection.setLocalDescription(offer);
+
+            // Store offer using appropriate signaling method
+            if (this.signalingMethod === 'firebase') {
+                await this.firebaseSet(`signaling/${this.room.code}/offer`, offer);
+                console.log('Offer stored in Firebase');
+            } else {
+                localStorage.setItem('multiplayerOffer_' + this.room.code, JSON.stringify(offer));
+                console.log('Offer stored in localStorage');
+            }
+
+            // Handle ICE candidates
+            this.connection.onicecandidate = async (event) => {
+                if (event.candidate) {
+                    console.log('Host ICE candidate:', event.candidate);
+                    
+                    if (this.signalingMethod === 'firebase') {
+                        // Get existing candidates and add new one
+                        const existingCandidates = await this.firebaseGet(`signaling/${this.room.code}/hostCandidates`) || [];
+                        existingCandidates.push(event.candidate);
+                        await this.firebaseSet(`signaling/${this.room.code}/hostCandidates`, existingCandidates);
+                    } else {
+                        const candidates = JSON.parse(localStorage.getItem('iceCandidates_' + this.room.code) || '[]');
+                        candidates.push(event.candidate);
+                        localStorage.setItem('iceCandidates_' + this.room.code, JSON.stringify(candidates));
+                    }
+                }
+            };
+
+            this.updateConnectionStatus('connected', 'Warte auf Verbindung...');
+            
+            // Check for guest connections periodically
+            this.checkForGuestInterval = setInterval(() => {
+                this.checkForGuestConnections();
+            }, 2000);
+
+        } catch (error) {
+            console.error('WebRTC Host setup failed:', error);
+            throw error;
+        }
+    }
+
+    async setupWebRTCGuest(roomCode) {
+        try {
+            // Wait for host offer (with timeout)
+            let offer = null;
+            let attempts = 0;
+            const maxAttempts = 15; // 30 seconds timeout
+            
+            while (!offer && attempts < maxAttempts) {
+                if (this.signalingMethod === 'firebase') {
+                    offer = await this.firebaseGet(`signaling/${roomCode}/offer`);
+                } else {
+                    const offerData = localStorage.getItem('multiplayerOffer_' + roomCode);
+                    if (offerData) {
+                        offer = JSON.parse(offerData);
+                    }
+                }
+                
+                if (!offer) {
+                    console.log(`Waiting for host offer... attempt ${attempts + 1}/${maxAttempts}`);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    attempts++;
+                }
+            }
+            
+            if (!offer) {
+                throw new Error('Raum nicht gefunden oder Host nicht bereit');
+            }
+
+            console.log('Found host offer:', offer);
+
+            // Create RTCPeerConnection
+            this.connection = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            });
+
+            // Handle incoming data channel
+            this.connection.ondatachannel = (event) => {
+                this.dataChannel = event.channel;
+                this.setupDataChannelHandlers();
+            };
+
+            // Set remote description
+            await this.connection.setRemoteDescription(offer);
+
+            // Create answer
+            const answer = await this.connection.createAnswer();
+            await this.connection.setLocalDescription(answer);
+
+            // Store answer using appropriate signaling method
+            if (this.signalingMethod === 'firebase') {
+                await this.firebaseSet(`signaling/${roomCode}/answer`, answer);
+                console.log('Answer stored in Firebase');
+            } else {
+                localStorage.setItem('multiplayerAnswer_' + roomCode, JSON.stringify(answer));
+                console.log('Answer stored in localStorage');
+            }
+
+            // Handle ICE candidates
+            this.connection.onicecandidate = async (event) => {
+                if (event.candidate) {
+                    console.log('Guest ICE candidate:', event.candidate);
+                    
+                    if (this.signalingMethod === 'firebase') {
+                        const existingCandidates = await this.firebaseGet(`signaling/${roomCode}/guestCandidates`) || [];
+                        existingCandidates.push(event.candidate);
+                        await this.firebaseSet(`signaling/${roomCode}/guestCandidates`, existingCandidates);
+                    } else {
+                        const candidates = JSON.parse(localStorage.getItem('guestIceCandidates_' + roomCode) || '[]');
+                        candidates.push(event.candidate);
+                        localStorage.setItem('guestIceCandidates_' + roomCode, JSON.stringify(candidates));
+                    }
+                }
+            };
+
+            // Add stored ICE candidates from host
+            setTimeout(async () => {
+                let hostCandidates = [];
+                
+                if (this.signalingMethod === 'firebase') {
+                    hostCandidates = await this.firebaseGet(`signaling/${roomCode}/hostCandidates`) || [];
+                } else {
+                    hostCandidates = JSON.parse(localStorage.getItem('iceCandidates_' + roomCode) || '[]');
+                }
+                
+                for (const candidate of hostCandidates) {
+                    try {
+                        await this.connection.addIceCandidate(candidate);
+                        console.log('Added host ICE candidate');
+                    } catch (error) {
+                        console.warn('Failed to add host ICE candidate:', error);
+                    }
+                }
+            }, 2000);
+
+            this.updateConnectionStatus('connected', 'Verbunden');
+
+        } catch (error) {
+            console.error('WebRTC Guest setup failed:', error);
+            throw error;
+        }
+    }
+
+    async checkForGuestConnections() {
+        if (!this.room || !this.connection) return;
+
+        let answer = null;
+        
+        if (this.signalingMethod === 'firebase') {
+            answer = await this.firebaseGet(`signaling/${this.room.code}/answer`);
+        } else {
+            const answerData = localStorage.getItem('multiplayerAnswer_' + this.room.code);
+            if (answerData) {
+                answer = JSON.parse(answerData);
+            }
+        }
+        
+        if (answer && this.connection.remoteDescription === null) {
+            try {
+                await this.connection.setRemoteDescription(answer);
+                console.log('Set guest answer as remote description');
+
+                // Add guest ICE candidates
+                let guestCandidates = [];
+                
+                if (this.signalingMethod === 'firebase') {
+                    guestCandidates = await this.firebaseGet(`signaling/${this.room.code}/guestCandidates`) || [];
+                } else {
+                    guestCandidates = JSON.parse(localStorage.getItem('guestIceCandidates_' + this.room.code) || '[]');
+                }
+                
+                for (const candidate of guestCandidates) {
+                    try {
+                        await this.connection.addIceCandidate(candidate);
+                        console.log('Added guest ICE candidate');
+                    } catch (error) {
+                        console.warn('Failed to add guest ICE candidate:', error);
+                    }
+                }
+
+                // Update connection status
+                clearInterval(this.checkForGuestInterval);
+                this.updateConnectionStatus('connected', 'Spieler verbunden!');
+
+                // Send welcome message to establish connection
+                setTimeout(() => {
+                    if (this.dataChannel && this.dataChannel.readyState === 'open') {
+                        this.sendMessage({
+                            type: 'playerUpdate',
+                            data: this.localPlayer,
+                            playerId: this.playerId
+                        });
+                    }
+                }, 2000);
+
+            } catch (error) {
+                console.error('Failed to handle guest answer:', error);
+            }
+        }
+    }
+
+    setupDataChannelHandlers() {
+        if (!this.dataChannel) return;
+
+        this.dataChannel.onopen = () => {
+            console.log('Data channel opened');
+            this.updateConnectionStatus('connected', 'Datenkanal bereit');
+            
+            // Send initial player data
+            if (this.localPlayer) {
+                this.sendMessage({
+                    type: 'playerUpdate',
+                    data: this.localPlayer,
+                    playerId: this.playerId
+                });
+            }
+        };
+
+        this.dataChannel.onclose = () => {
+            console.log('Data channel closed');
+            this.updateConnectionStatus('disconnected', 'Verbindung getrennt');
+        };
+
+        this.dataChannel.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                this.handleMessage(message);
+            } catch (error) {
+                console.error('Failed to parse message:', error);
+            }
+        };
+
+        this.dataChannel.onerror = (error) => {
+            console.error('Data channel error:', error);
+            this.updateConnectionStatus('disconnected', 'Verbindungsfehler');
+        };
+    }
+
+    generateRoomCode() {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let result = '';
+        for (let i = 0; i < 8; i++) {
+            if (i === 4) result += '-';
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+    }
+
+    // Debug function to list all rooms
+    listAvailableRooms() {
+        const allKeys = Object.keys(localStorage).filter(key => key.startsWith('room_'));
+        console.log('Available rooms in localStorage:');
+        allKeys.forEach(key => {
+            const roomData = localStorage.getItem(key);
+            try {
+                const room = JSON.parse(roomData);
+                console.log(`- ${key}: ${room.name} (${room.mode}, ${room.status})`);
+            } catch (e) {
+                console.log(`- ${key}: Invalid data`);
+            }
+        });
+        return allKeys;
+    }
+
+    // Clean up old rooms (older than 1 hour)
+    cleanupOldRooms() {
+        const allKeys = Object.keys(localStorage).filter(key => key.startsWith('room_'));
+        const now = Date.now();
+        const oneHour = 60 * 60 * 1000;
+        
+        allKeys.forEach(key => {
+            const roomData = localStorage.getItem(key);
+            try {
+                const room = JSON.parse(roomData);
+                if (now - room.created > oneHour) {
+                    localStorage.removeItem(key);
+                    console.log('Removed old room:', key);
+                }
+            } catch (e) {
+                localStorage.removeItem(key);
+            }
+        });
+    }
+
+    copyRoomCode() {
+        const roomCode = document.getElementById('displayRoomCode').textContent;
+        navigator.clipboard.writeText(roomCode).then(() => {
+            // Show copy feedback
+            const copyBtn = document.querySelector('.copy-btn');
+            const originalIcon = copyBtn.innerHTML;
+            copyBtn.innerHTML = '<i class="fas fa-check"></i>';
+            copyBtn.style.background = 'var(--accent-green)';
+            
+            setTimeout(() => {
+                copyBtn.innerHTML = originalIcon;
+                copyBtn.style.background = '';
+            }, 2000);
+        });
+    }
+
+    updateConnectionStatus(state, text) {
+        this.connectionState = state;
+        const indicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+        
+        indicator.className = `status-indicator ${state}`;
+        statusText.textContent = text;
+    }
+
+    startGame() {
+        if (!this.isHost) return;
+        
+        // Start multiplayer game
+        closeModal('multiplayerModal');
+        
+        // Initialize multiplayer game mode
+        this.initializeMultiplayerGame();
+    }
+
+    initializeMultiplayerGame() {
+        if (!game) return;
+        
+        // Set multiplayer mode in game
+        game.multiplayerMode = this.mode;
+        game.multiplayerManager = this;
+        
+        // Start the game
+        game.startGameFromMenu();
+        
+        // Show multiplayer UI
+        this.showMultiplayerGameUI();
+    }
+
+    showMultiplayerGameUI() {
+        // Add multiplayer-specific UI elements to the game
+        const multiplayerUI = document.createElement('div');
+        multiplayerUI.id = 'multiplayerGameUI';
+        multiplayerUI.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 1rem;
+            border-radius: 10px;
+            color: white;
+            z-index: 1000;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        `;
+        
+        multiplayerUI.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <i class="fas fa-users"></i>
+                <strong>${this.mode === 'coop' ? 'Kooperativ' : 'PvP'} Modus</strong>
+            </div>
+            <div style="font-size: 0.8rem; color: #ccc;">
+                <div>Spieler: ${this.players.size}</div>
+                <div class="multiplayer-status" id="multiplayerStatus">Verbunden</div>
+            </div>
+        `;
+        
+        document.body.appendChild(multiplayerUI);
+    }
+
+    leaveRoom() {
+        if (confirm('Möchtest du den Raum wirklich verlassen?')) {
+            this.cleanup();
+            this.showModeSelection();
+            this.updateConnectionStatus('disconnected', 'Getrennt');
+        }
+    }
+
+    async cleanup() {
+        if (this.connection) {
+            this.connection.close();
+            this.connection = null;
+        }
+        
+        if (this.dataChannel) {
+            this.dataChannel.close();
+            this.dataChannel = null;
+        }
+        
+        if (this.checkForGuestInterval) {
+            clearInterval(this.checkForGuestInterval);
+            this.checkForGuestInterval = null;
+        }
+        
+        // Clean up signaling data
+        if (this.room && this.room.code) {
+            if (this.signalingMethod === 'firebase') {
+                // Clean up Firebase signaling data
+                try {
+                    await this.firebaseDelete(`rooms/${this.room.code}`);
+                    await this.firebaseDelete(`signaling/${this.room.code}`);
+                    console.log('Firebase room data cleaned up');
+                } catch (error) {
+                    console.warn('Failed to clean up Firebase data:', error);
+                }
+            } else {
+                // Clean up localStorage
+                localStorage.removeItem(`room_${this.room.code}`);
+                localStorage.removeItem(`multiplayerOffer_${this.room.code}`);
+                localStorage.removeItem(`multiplayerAnswer_${this.room.code}`);
+                localStorage.removeItem(`iceCandidates_${this.room.code}`);
+                localStorage.removeItem(`guestIceCandidates_${this.room.code}`);
+            }
+        }
+        
+        this.players.clear();
+        this.room = null;
+        this.isHost = false;
+        this.localPlayer = null;
+        this.playerId = null;
+        this.playerName = null;
+        
+        // Remove multiplayer UI if exists
+        const multiplayerUI = document.getElementById('multiplayerGameUI');
+        if (multiplayerUI) {
+            multiplayerUI.remove();
+        }
+        
+        // Reset game multiplayer mode
+        if (game) {
+            game.multiplayerMode = null;
+        }
+    }
+
+    // Message handling for multiplayer communication
+    sendMessage(message) {
+        if (!this.dataChannel || this.dataChannel.readyState !== 'open') return;
+        
+        const messageWithTimestamp = {
+            ...message,
+            timestamp: Date.now()
+        };
+        
+        this.dataChannel.send(JSON.stringify(messageWithTimestamp));
+    }
+
+    handleMessage(message) {
+        const { type, data, playerId } = message;
+        
+        switch (type) {
+            case 'playerUpdate':
+                this.players.set(playerId, data);
+                this.updatePlayersDisplay();
+                break;
+            case 'playerReady':
+                if (this.players.has(playerId)) {
+                    this.players.get(playerId).ready = data.ready;
+                    this.updatePlayersDisplay();
+                }
+                break;
+            case 'gameSync':
+                this.handleGameSync(data);
+                break;
+            case 'towerPlaced':
+                this.handleTowerPlaced(data);
+                break;
+            case 'towerUpgraded':
+                this.handleTowerUpgraded(data);
+                break;
+            case 'towerSold':
+                this.handleTowerSold(data);
+                break;
+            case 'enemySent':
+                this.handleEnemySent(data);
+                break;
+            case 'resourceUpdate':
+                this.handleResourceUpdate(data);
+                break;
+            case 'waveSync':
+                this.handleWaveSync(data);
+                break;
+            case 'specialAbility':
+                this.handleSpecialAbility(data);
+                break;
+            case 'gameState':
+                this.handleGameStateUpdate(data);
+                break;
+        }
+    }
+
+    handleGameSync(data) {
+        if (!game || !game.multiplayerMode) return;
+        
+        // Synchronize basic game state
+        if (this.mode === 'coop' && !this.isHost) {
+            // Guest synchronizes with host in coop mode
+            if (data.wave !== undefined) game.wave = data.wave;
+            if (data.waveInProgress !== undefined) game.waveInProgress = data.waveInProgress;
+            if (data.gameSpeed !== undefined) game.gameSpeed = data.gameSpeed;
+        }
+    }
+
+    handleTowerPlaced(data) {
+        if (!game || !game.multiplayerMode) return;
+        
+        if (game.multiplayerMode === 'coop') {
+            // In coop mode, show other player's towers
+            const tower = new Tower(data.type, data.x, data.y);
+            tower.isMultiplayerTower = true;
+            tower.multiplayerOwner = data.playerId;
+            
+            // Apply any upgrades
+            if (data.upgrades) {
+                tower.upgrades = { ...data.upgrades };
+                tower.updateStats();
+            }
+            
+            game.towers.push(tower);
+            
+            // Update shared resources in coop
+            if (data.sharedMoney !== undefined) {
+                game.money = data.sharedMoney;
+            }
+        }
+    }
+
+    handleTowerUpgraded(data) {
+        if (!game || !game.multiplayerMode === 'coop') return;
+        
+        // Find the tower and apply upgrade
+        const tower = game.towers.find(t => 
+            Math.abs(t.x - data.x) < 5 && Math.abs(t.y - data.y) < 5
+        );
+        
+        if (tower) {
+            tower.upgrades = { ...data.upgrades };
+            tower.updateStats();
+            
+            // Update shared resources
+            if (data.sharedMoney !== undefined) {
+                game.money = data.sharedMoney;
+            }
+        }
+    }
+
+    handleTowerSold(data) {
+        if (!game || !game.multiplayerMode === 'coop') return;
+        
+        // Remove the tower
+        game.towers = game.towers.filter(tower => 
+            !(Math.abs(tower.x - data.x) < 5 && Math.abs(tower.y - data.y) < 5)
+        );
+        
+        // Update shared resources
+        if (data.sharedMoney !== undefined) {
+            game.money = data.sharedMoney;
+        }
+    }
+
+    handleEnemySent(data) {
+        if (!game || game.multiplayerMode !== 'pvp') return;
+        
+        // Add enemies sent by opponent in PvP mode
+        for (let i = 0; i < data.count; i++) {
+            const enemy = new Enemy(game.path, data.enemyType, game.wave);
+            enemy.isPvPEnemy = true;
+            enemy.sentByPlayer = data.playerId;
+            
+            // Add slight delay between enemies
+            setTimeout(() => {
+                if (game.enemies) {
+                    game.enemies.push(enemy);
+                }
+            }, i * 200);
+        }
+        
+        // Show notification
+        this.showPvPNotification(`${data.playerName} sendet ${data.count}x ${data.enemyType}!`);
+    }
+
+    handleResourceUpdate(data) {
+        if (!game || game.multiplayerMode !== 'coop') return;
+        
+        // Update shared resources in coop mode
+        if (data.money !== undefined) game.money = data.money;
+        if (data.lives !== undefined) game.lives = data.lives;
+        if (data.score !== undefined) game.score = data.score;
+    }
+
+    handleWaveSync(data) {
+        if (!game || !this.isHost) return; // Only host manages waves
+        
+        // Guest is ready for next wave
+        if (data.ready && this.mode === 'coop') {
+            this.guestReadyForWave = true;
+        }
+    }
+
+    handleSpecialAbility(data) {
+        if (!game || game.multiplayerMode !== 'coop') return;
+        
+        // Execute special ability from other player
+        switch (data.ability) {
+            case 'meteorStrike':
+                game.meteorStrike(data.x, data.y);
+                break;
+            case 'freezeAll':
+                game.freezeAllEnemies();
+                break;
+            case 'goldRush':
+                game.goldRush();
+                break;
+            // Add other abilities as needed
+        }
+        
+        this.showCoopNotification(`${data.playerName} verwendet ${data.abilityName}!`);
+    }
+
+    handleGameStateUpdate(data) {
+        if (!game) return;
+        
+        // Handle game over, victory, etc.
+        if (data.gameOver) {
+            if (game.multiplayerMode === 'pvp') {
+                this.showPvPGameOver(data.winner, data.reason);
+            } else {
+                // Coop game over
+                game.gameOver();
+            }
+        }
+    }
+
+    // Multiplayer message sending methods
+    sendTowerPlaced(tower) {
+        if (!this.isConnected() || !tower) return;
+        
+        const message = {
+            type: 'towerPlaced',
+            data: {
+                type: tower.type,
+                x: tower.x,
+                y: tower.y,
+                upgrades: tower.upgrades,
+                playerId: this.playerId,
+                playerName: this.playerName,
+                sharedMoney: game.multiplayerMode === 'coop' ? game.money : undefined
+            },
+            playerId: this.playerId
+        };
+        
+        this.sendMessage(message);
+    }
+
+    sendTowerUpgraded(tower) {
+        if (!this.isConnected() || !tower || game.multiplayerMode !== 'coop') return;
+        
+        const message = {
+            type: 'towerUpgraded',
+            data: {
+                x: tower.x,
+                y: tower.y,
+                upgrades: tower.upgrades,
+                playerId: this.playerId,
+                sharedMoney: game.money
+            },
+            playerId: this.playerId
+        };
+        
+        this.sendMessage(message);
+    }
+
+    sendTowerSold(x, y, sellValue) {
+        if (!this.isConnected() || game.multiplayerMode !== 'coop') return;
+        
+        const message = {
+            type: 'towerSold',
+            data: {
+                x: x,
+                y: y,
+                sellValue: sellValue,
+                playerId: this.playerId,
+                sharedMoney: game.money
+            },
+            playerId: this.playerId
+        };
+        
+        this.sendMessage(message);
+    }
+
+    sendEnemies(enemyType, count) {
+        if (!this.isConnected() || game.multiplayerMode !== 'pvp') return;
+        
+        const message = {
+            type: 'enemySent',
+            data: {
+                enemyType: enemyType,
+                count: count,
+                playerId: this.playerId,
+                playerName: this.playerName
+            },
+            playerId: this.playerId
+        };
+        
+        this.sendMessage(message);
+    }
+
+    sendResourceUpdate() {
+        if (!this.isConnected() || game.multiplayerMode !== 'coop') return;
+        
+        const message = {
+            type: 'resourceUpdate',
+            data: {
+                money: game.money,
+                lives: game.lives,
+                score: game.score,
+                playerId: this.playerId
+            },
+            playerId: this.playerId
+        };
+        
+        this.sendMessage(message);
+    }
+
+    sendGameSync() {
+        if (!this.isConnected() || !this.isHost) return;
+        
+        const message = {
+            type: 'gameSync',
+            data: {
+                wave: game.wave,
+                waveInProgress: game.waveInProgress,
+                gameSpeed: game.gameSpeed,
+                playerId: this.playerId
+            },
+            playerId: this.playerId
+        };
+        
+        this.sendMessage(message);
+    }
+
+    sendWaveReady() {
+        if (!this.isConnected() || this.isHost) return;
+        
+        const message = {
+            type: 'waveSync',
+            data: {
+                ready: true,
+                playerId: this.playerId
+            },
+            playerId: this.playerId
+        };
+        
+        this.sendMessage(message);
+    }
+
+    sendSpecialAbility(abilityType, abilityName, x = null, y = null) {
+        if (!this.isConnected() || game.multiplayerMode !== 'coop') return;
+        
+        const message = {
+            type: 'specialAbility',
+            data: {
+                ability: abilityType,
+                abilityName: abilityName,
+                x: x,
+                y: y,
+                playerId: this.playerId,
+                playerName: this.playerName
+            },
+            playerId: this.playerId
+        };
+        
+        this.sendMessage(message);
+    }
+
+    sendGameOver(winner = null, reason = null) {
+        if (!this.isConnected()) return;
+        
+        const message = {
+            type: 'gameState',
+            data: {
+                gameOver: true,
+                winner: winner,
+                reason: reason,
+                playerId: this.playerId
+            },
+            playerId: this.playerId
+        };
+        
+        this.sendMessage(message);
+    }
+
+    // Notification system for multiplayer
+    showCoopNotification(message) {
+        this.showNotification(message, 'coop');
+    }
+
+    showPvPNotification(message) {
+        this.showNotification(message, 'pvp');
+    }
+
+    showNotification(message, type) {
+        const notification = document.createElement('div');
+        notification.className = `multiplayer-notification ${type}`;
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            background: ${type === 'pvp' ? '#ff4444' : '#44ff44'};
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            z-index: 1000;
+            animation: slideInRight 0.3s ease;
+        `;
+        
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.style.animation = 'slideOutRight 0.3s ease';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }, 3000);
+    }
+
+    showPvPGameOver(winner, reason) {
+        const overlay = document.createElement('div');
+        overlay.className = 'pvp-game-over-overlay';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        `;
+        
+        const resultText = winner === this.playerId ? 'SIEG!' : 'NIEDERLAGE!';
+        const resultColor = winner === this.playerId ? '#44ff44' : '#ff4444';
+        
+        overlay.innerHTML = `
+            <div style="background: white; padding: 40px; border-radius: 10px; text-align: center; max-width: 400px;">
+                <h2 style="color: ${resultColor}; margin: 0 0 20px 0; font-size: 2em;">${resultText}</h2>
+                <p style="margin: 10px 0; font-size: 1.1em;">${reason || 'Spiel beendet'}</p>
+                <button onclick="this.parentElement.parentElement.remove(); multiplayerManager.leaveRoom();" 
+                        style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px;">
+                    Zurück zur Lobby
+                </button>
+                <button onclick="this.parentElement.parentElement.remove(); game.resetGame();" 
+                        style="background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 10px;">
+                    Neues Spiel
+                </button>
+            </div>
+        `;
+        
+        document.body.appendChild(overlay);
+    }
+
+    // Initialize multiplayer UI elements
+    initializeMultiplayerUI() {
+        // Check if UI elements already exist
+        if (document.getElementById('multiplayerNotifications')) return;
+        
+        // Notification-Container für Multiplayer
+        const multiplayerNotifications = document.createElement('div');
+        multiplayerNotifications.id = 'multiplayerNotifications';
+        multiplayerNotifications.style.cssText = `
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+        `;
+        document.body.appendChild(multiplayerNotifications);
+
+        // PvP Enemy Send Panel
+        const pvpPanel = document.createElement('div');
+        pvpPanel.id = 'pvpEnemyPanel';
+        pvpPanel.style.cssText = `
+            position: fixed;
+            top: 80px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            display: none;
+            z-index: 1000;
+            min-width: 250px;
+        `;
+        pvpPanel.innerHTML = `
+            <h3 style="margin: 0 0 10px 0; color: #ff4444;">Feinde senden</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                <button onclick="game.sendPvPEnemies('basic', 5)" style="background: #666; color: white; border: none; padding: 8px; border-radius: 3px; cursor: pointer;">5x Basic (50💰)</button>
+                <button onclick="game.sendPvPEnemies('fast', 3)" style="background: #666; color: white; border: none; padding: 8px; border-radius: 3px; cursor: pointer;">3x Fast (60💰)</button>
+                <button onclick="game.sendPvPEnemies('tank', 2)" style="background: #666; color: white; border: none; padding: 8px; border-radius: 3px; cursor: pointer;">2x Tank (80💰)</button>
+                <button onclick="game.sendPvPEnemies('flying', 4)" style="background: #666; color: white; border: none; padding: 8px; border-radius: 3px; cursor: pointer;">4x Flying (100💰)</button>
+                <button onclick="game.sendPvPEnemies('boss', 1)" style="background: #666; color: white; border: none; padding: 8px; border-radius: 3px; cursor: pointer;">1x Boss (150💰)</button>
+                <button onclick="game.sendPvPEnemies('swarm', 10)" style="background: #666; color: white; border: none; padding: 8px; border-radius: 3px; cursor: pointer;">10x Swarm (120💰)</button>
+            </div>
+            <div style="margin-top: 10px; font-size: 0.9em; color: #ccc;">
+                Geld: <span id="pvpMoney">0</span>💰
+            </div>
+        `;
+        document.body.appendChild(pvpPanel);
+
+        // Coop Info Panel
+        const coopPanel = document.createElement('div');
+        coopPanel.id = 'coopInfoPanel';
+        coopPanel.style.cssText = `
+            position: fixed;
+            bottom: 80px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            display: none;
+            z-index: 1000;
+            min-width: 250px;
+        `;
+        coopPanel.innerHTML = `
+            <h3 style="margin: 0 0 10px 0; color: #44ff44;">Coop Status</h3>
+            <div id="coopPartnerInfo">Partner: Warte...</div>
+            <div style="margin-top: 10px;">
+                <div>Gemeinsame Ressourcen:</div>
+                <div>💰 Geld: <span id="coopSharedMoney">0</span></div>
+                <div>❤️ Leben: <span id="coopSharedLives">0</span></div>
+                <div>🏆 Punkte: <span id="coopSharedScore">0</span></div>
+            </div>
+            <div style="margin-top: 10px;">
+                <button onclick="game.useCoopAbility('goldRush')" style="background: #28a745; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin: 2px;">💰 Gold Rush</button>
+                <button onclick="game.useCoopAbility('freezeAll')" style="background: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin: 2px;">❄️ Freeze All</button>
+            </div>
+        `;
+        document.body.appendChild(coopPanel);
+    }
+
+    startMultiplayerGame() {
+        if (!this.isConnected() || !this.mode) {
+            this.showNotification('Nicht bereit zum Spielen!', 'pvp');
+            return;
+        }
+        
+        // Initialize multiplayer UI elements
+        game.initializeMultiplayerUI();
+        
+        // Set game mode
+        game.multiplayerMode = this.mode;
+        
+        // Start the game
+        this.startGame();
+    }
+
+    startGame() {
+        // Hide multiplayer UI
+        document.getElementById('multiplayerUI').style.display = 'none';
+        
+        // Start actual game
+        if (game) {
+            game.startGame();
+        }
+    }
+}
+
 // Changelog Funktionalität
 async function loadChangelog() {
     try {
@@ -4626,10 +8079,47 @@ function toggleSection(sectionClass) {
     }
 }
 
+// Map Selection bestätigen
+function confirmMapSelection() {
+    if (game && game.tempSelectedMapId) {
+        game.currentMapId = game.tempSelectedMapId;
+        game.loadMap(game.tempSelectedMapId);
+        closeModal('mapSelectionModal');
+        
+        // Notification anzeigen
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--accent-green);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            z-index: 10000;
+            font-weight: 500;
+            box-shadow: var(--shadow-lg);
+        `;
+        notification.textContent = `Map "${game.maps[game.currentMapId].name}" ausgewählt!`;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
+    }
+}
+
 // Spiel starten
 let game;
 window.addEventListener('load', () => {
+    console.log('Window loaded, initializing game...');
     game = new Game();
+    console.log('Game object created:', game);
+    console.log('Game startGameFromMenu method exists:', typeof game.startGameFromMenu);
+    
+    // Event Listeners für Hauptmenü setzen
+    setupMainMenuEventListeners();
+    console.log('Main menu event listeners set up');
     
     // Skill Points Badge initial aktualisieren
     game.updateSkillPointsBadge();
@@ -4642,4 +8132,149 @@ window.addEventListener('load', () => {
     if (mainMenu) mainMenu.style.display = 'flex';
     if (gameContainer) gameContainer.style.display = 'none';
     if (changelogBtn) changelogBtn.style.display = 'flex'; // Button initial anzeigen
+    
+    console.log('Game initialization complete');
 });
+
+function setupMainMenuEventListeners() {
+    console.log('Setting up main menu event listeners...');
+    
+    // Hauptmenü Event Listeners
+    const startGameBtn = document.getElementById('startGame');
+    
+    // Debug: Button-Klickbarkeit prüfen
+    console.log('Button found:', !!startGameBtn);
+    if (startGameBtn) {
+        console.log('Button computed style pointer-events:', window.getComputedStyle(startGameBtn).pointerEvents);
+        console.log('Button computed style z-index:', window.getComputedStyle(startGameBtn).zIndex);
+        console.log('Button computed style display:', window.getComputedStyle(startGameBtn).display);
+        console.log('Button position:', startGameBtn.getBoundingClientRect());
+        
+        // Test: Was ist an der Button-Position?
+        const rect = startGameBtn.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const elementAtCenter = document.elementFromPoint(centerX, centerY);
+        console.log('Element at button center:', elementAtCenter);
+        console.log('Is element the button itself?', elementAtCenter === startGameBtn);
+        
+        // Prüfe Parent-Elemente
+        let parent = startGameBtn.parentElement;
+        while (parent) {
+            const parentStyle = window.getComputedStyle(parent);
+            if (parentStyle.pointerEvents === 'none') {
+                console.log('Parent with pointer-events none found:', parent);
+            }
+            parent = parent.parentElement;
+        }
+    }
+    
+    const howToPlayBtn = document.getElementById('howToPlay');
+    const settingsBtn = document.getElementById('settings');
+    const statisticsBtn = document.getElementById('statistics');
+    const skillTreeMenuBtn = document.getElementById('skillTreeMenu');
+    const mapSelectionBtn = document.getElementById('mapSelection');
+    const mapEditorBtn = document.getElementById('mapEditor');
+    const multiplayerBtn = document.getElementById('multiplayer');
+    const tradingSystemBtn = document.getElementById('tradingSystem');
+    const changelogBtn = document.getElementById('changelogBtn');
+    
+    if (startGameBtn) {
+        console.log('Found startGame button, adding event listener');
+        
+        // Mehrere Event Listener für Debug
+        startGameBtn.addEventListener('click', (e) => {
+            console.log('>>> CLICK EVENT FIRED <<<', e);
+            console.log('Event target:', e.target);
+            console.log('Event currentTarget:', e.currentTarget);
+            e.preventDefault();
+            e.stopPropagation();
+            
+            try {
+                if (game) {
+                    game.startGameFromMenu();
+                } else {
+                    console.error('Game object not found!');
+                }
+            } catch (error) {
+                console.error('Error in startGameFromMenu:', error);
+                console.error('Error stack:', error.stack);
+            }
+        }, true); // Use capture phase
+        
+        startGameBtn.addEventListener('mousedown', () => {
+            console.log('>>> MOUSEDOWN EVENT <<<');
+        });
+        
+        startGameBtn.addEventListener('mouseup', () => {
+            console.log('>>> MOUSEUP EVENT <<<');
+        });
+        
+    } else {
+        console.error('startGame button not found!');
+    }
+    
+    if (howToPlayBtn) {
+        howToPlayBtn.addEventListener('click', () => {
+            if (game) game.showHowToPlay();
+        });
+    }
+    
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', () => {
+            if (game) game.showSettings();
+        });
+    }
+    
+    if (statisticsBtn) {
+        statisticsBtn.addEventListener('click', () => {
+            if (game) game.showStatistics();
+        });
+    }
+    
+    if (skillTreeMenuBtn) {
+        skillTreeMenuBtn.addEventListener('click', () => {
+            if (game) game.showSkillTreeFromMenu();
+        });
+    }
+    
+    if (mapSelectionBtn) {
+        mapSelectionBtn.addEventListener('click', () => {
+            if (game) game.showMapSelection();
+        });
+    }
+    
+    if (mapEditorBtn) {
+        mapEditorBtn.addEventListener('click', () => {
+            if (game) game.showMapEditor();
+        });
+    }
+    
+    if (multiplayerBtn) {
+        multiplayerBtn.addEventListener('click', () => {
+            if (game) {
+                const modal = document.getElementById('multiplayerModal');
+                if (modal) {
+                    modal.style.display = 'flex';
+                    game.initializeMultiplayer();
+                }
+            }
+        });
+    }
+    
+    if (tradingSystemBtn) {
+        tradingSystemBtn.addEventListener('click', () => {
+            if (game) {
+                game.showTradingSystem();
+            }
+        });
+    }
+    
+    if (changelogBtn) {
+        changelogBtn.addEventListener('click', () => {
+            if (typeof showChangelog === 'function') {
+                showChangelog();
+            }
+        });
+    }
+}

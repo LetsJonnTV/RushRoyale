@@ -52,6 +52,21 @@
                     <i class="fas fa-map"></i>
                     <span>Maps</span>
                 </button>
+
+                <button id="mapEditor" class="menu-btn secondary">
+                    <i class="fas fa-edit"></i>
+                    <span>Map Editor</span>
+                </button>
+
+                <button id="multiplayer" class="menu-btn secondary">
+                    <i class="fas fa-users"></i>
+                    <span>Multiplayer</span>
+                </button>
+
+                <button id="tradingSystem" class="menu-btn secondary">
+                    <i class="fas fa-store"></i>
+                    <span>Trading</span>
+                </button>
             </div>
             
             <!-- Was ist neu Button -->
@@ -61,7 +76,7 @@
             
             <div class="menu-footer">
                 <p>&copy; 2025 Rush Royal - Tower Defense Elite, by Jonn2008</p>
-                <p>Version 2.0.0</p>
+                <p>Version 3.0.0</p>
             </div>
         </div>
     </div>
@@ -393,6 +408,14 @@
                     <!-- Maps werden dynamisch hinzugefügt -->
                 </div>
                 
+                <!-- Custom Maps Section -->
+                <div class="custom-maps-section" id="customMapsSection" style="display: none;">
+                    <h3><i class="fas fa-user-edit"></i> Deine Custom Maps</h3>
+                    <div class="custom-maps-grid" id="customMapsGrid">
+                        <!-- Custom maps werden dynamisch hinzugefügt -->
+                    </div>
+                </div>
+                
                 <div class="current-map-info" id="currentMapInfo">
                     <h3>Aktuell ausgewählt:</h3>
                     <div class="selected-map-details">
@@ -410,6 +433,241 @@
                     <i class="fas fa-check"></i>
                     <span>Map wählen</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Editor Modal -->
+    <div id="mapEditorModal" class="modal" style="display: none;">
+        <div class="modal-background"></div>
+        <div class="modal-content map-editor-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-edit"></i> Map Editor</h2>
+                <button class="modal-close" onclick="closeModal('mapEditorModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="editor-toolbar">
+                    <div class="toolbar-section">
+                        <h3><i class="fas fa-tools"></i> Werkzeuge</h3>
+                        <div class="tool-buttons">
+                            <button id="drawPathTool" class="tool-btn active" title="Pfad zeichnen">
+                                <i class="fas fa-route"></i>
+                                <span>Pfad zeichnen</span>
+                            </button>
+                            <button id="eraseTool" class="tool-btn" title="Löschen">
+                                <i class="fas fa-eraser"></i>
+                                <span>Löschen</span>
+                            </button>
+                            <button id="clearAll" class="tool-btn danger" title="Alles löschen">
+                                <i class="fas fa-trash"></i>
+                                <span>Alles löschen</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="toolbar-section">
+                        <h3><i class="fas fa-cog"></i> Map Einstellungen</h3>
+                        <div class="map-settings">
+                            <div class="setting-group">
+                                <label for="mapName">Map Name:</label>
+                                <input type="text" id="mapName" placeholder="Meine Custom Map" maxlength="30">
+                            </div>
+                            <div class="setting-group">
+                                <label for="mapDescription">Beschreibung:</label>
+                                <textarea id="mapDescription" placeholder="Beschreibe deine Map..." maxlength="100"></textarea>
+                            </div>
+                            <div class="setting-group">
+                                <label for="mapDifficulty">Schwierigkeit:</label>
+                                <select id="mapDifficulty">
+                                    <option value="Einfach">Einfach</option>
+                                    <option value="Mittel">Mittel</option>
+                                    <option value="Schwer">Schwer</option>
+                                    <option value="Extrem">Extrem</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="editor-canvas-container">
+                    <canvas id="mapEditorCanvas" width="800" height="600"></canvas>
+                    <div class="editor-instructions">
+                        <p><i class="fas fa-info-circle"></i> Klicke, um Wegpunkte zu setzen. Der Pfad muss vom linken Rand zum rechten Rand führen.</p>
+                    </div>
+                </div>
+                
+                <div class="editor-actions">
+                    <button id="testMap" class="menu-btn secondary">
+                        <i class="fas fa-play"></i>
+                        <span>Map testen</span>
+                    </button>
+                    <button id="saveMap" class="menu-btn primary">
+                        <i class="fas fa-save"></i>
+                        <span>Map speichern</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Multiplayer Modal -->
+    <div id="multiplayerModal" class="modal" style="display: none;">
+        <div class="modal-background"></div>
+        <div class="modal-content multiplayer-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-users"></i> Multiplayer</h2>
+                <button class="modal-close" onclick="closeModal('multiplayerModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Multiplayer Mode Selection -->
+                <div class="multiplayer-modes" id="multiplayerModes">
+                    <h3><i class="fas fa-gamepad"></i> Spielmodus wählen</h3>
+                    <div class="mode-grid">
+                        <div class="mode-card" data-mode="coop">
+                            <div class="mode-icon">
+                                <i class="fas fa-handshake"></i>
+                            </div>
+                            <h4>Kooperativ</h4>
+                            <p>Arbeitet zusammen, um gemeinsam Gegnerwellen zu überstehen. Teilt Ressourcen und strategiert gemeinsam!</p>
+                            <div class="mode-features">
+                                <span class="feature-tag">2 Spieler</span>
+                                <span class="feature-tag">Geteilte Basis</span>
+                                <span class="feature-tag">Team-Ressourcen</span>
+                            </div>
+                        </div>
+                        
+                        <div class="mode-card" data-mode="pvp">
+                            <div class="mode-icon">
+                                <i class="fas fa-sword-fight"></i>
+                            </div>
+                            <h4>PvP Duell</h4>
+                            <p>Kämpft gegeneinander! Sendet zusätzliche Gegner zum anderen Spieler und verteidigt eure eigene Basis.</p>
+                            <div class="mode-features">
+                                <span class="feature-tag">1 vs 1</span>
+                                <span class="feature-tag">Eigene Basis</span>
+                                <span class="feature-tag">Gegner senden</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Room Creation/Join -->
+                <div class="multiplayer-lobby" id="multiplayerLobby" style="display: none;">
+                    <div class="lobby-header">
+                        <button class="back-btn" onclick="game.multiplayer.showModeSelection()">
+                            <i class="fas fa-arrow-left"></i> Zurück
+                        </button>
+                        <h3 id="lobbyTitle">Multiplayer Lobby</h3>
+                        
+                        <!-- Debug Section -->
+                        <div class="debug-section" style="margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; font-size: 0.8em;">
+                            <div style="margin-bottom: 10px;">
+                                <label style="display: block; margin-bottom: 5px;">Verbindungstyp:</label>
+                                <select id="signalingMethod" onchange="if(window.multiplayerManager) window.multiplayerManager.signalingMethod = this.value" 
+                                        style="background: rgba(0,0,0,0.5); color: white; border: 1px solid #666; padding: 5px; border-radius: 3px; width: 100%;">
+                                    <option value="firebase">🌐 Internet (Firebase) - Funktioniert zwischen Geräten</option>
+                                    <option value="localStorage">🏠 Lokal (LocalStorage) - Nur auf demselben Gerät</option>
+                                </select>
+                            </div>
+                            <button onclick="if(window.multiplayerManager) window.multiplayerManager.listAvailableRooms()" 
+                                    style="background: #17a2b8; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin: 2px;">
+                                🔍 Debug Räume
+                            </button>
+                            <button onclick="localStorage.clear(); console.log('LocalStorage cleared')" 
+                                    style="background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin: 2px;">
+                                🗑️ Reset Local
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="lobby-actions">
+                        <div class="action-section">
+                            <h4><i class="fas fa-plus"></i> Raum erstellen</h4>
+                            <div class="create-room">
+                                <div class="input-group">
+                                    <label for="roomName">Raum Name:</label>
+                                    <input type="text" id="roomName" placeholder="Mein Raum" maxlength="20">
+                                </div>
+                                <div class="input-group">
+                                    <label for="playerName">Dein Name:</label>
+                                    <input type="text" id="playerName" placeholder="Spieler" maxlength="15">
+                                </div>
+                                <button id="createRoom" class="menu-btn primary">
+                                    <i class="fas fa-plus"></i>
+                                    <span>Raum erstellen</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="action-separator">
+                            <span>ODER</span>
+                        </div>
+                        
+                        <div class="action-section">
+                            <h4><i class="fas fa-sign-in-alt"></i> Raum beitreten</h4>
+                            <div class="join-room">
+                                <div class="input-group">
+                                    <label for="roomCode">Raum Code:</label>
+                                    <input type="text" id="roomCode" placeholder="XXXX-XXXX" maxlength="9">
+                                </div>
+                                <div class="input-group">
+                                    <label for="joinPlayerName">Dein Name:</label>
+                                    <input type="text" id="joinPlayerName" placeholder="Spieler" maxlength="15">
+                                </div>
+                                <button id="joinRoom" class="menu-btn secondary">
+                                    <i class="fas fa-sign-in-alt"></i>
+                                    <span>Raum beitreten</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Waiting Room -->
+                <div class="waiting-room" id="waitingRoom" style="display: none;">
+                    <div class="waiting-header">
+                        <h3 id="waitingRoomTitle">Warte auf Spieler...</h3>
+                        <div class="room-info">
+                            <div class="room-code">
+                                <span>Raum Code:</span>
+                                <strong id="displayRoomCode">XXXX-XXXX</strong>
+                                <button class="copy-btn" onclick="game.multiplayer.copyRoomCode()">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="players-list">
+                        <h4><i class="fas fa-users"></i> Spieler</h4>
+                        <div class="players-grid" id="playersGrid">
+                            <!-- Players will be added dynamically -->
+                        </div>
+                    </div>
+                    
+                    <div class="waiting-actions">
+                        <button id="startMultiplayerGame" class="menu-btn primary" disabled>
+                            <i class="fas fa-play"></i>
+                            <span>Spiel starten</span>
+                        </button>
+                        <button id="leaveRoom" class="menu-btn danger">
+                            <i class="fas fa-sign-out-alt"></i>
+                            <span>Raum verlassen</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Connection Status -->
+                <div class="connection-status" id="connectionStatus">
+                    <div class="status-indicator" id="statusIndicator">
+                        <i class="fas fa-circle"></i>
+                        <span id="statusText">Bereit</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1048,6 +1306,104 @@
             <div class="modal-body">
                 <div id="changelogContent" class="changelog-content">
                     <p>Lade Changelog...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trading System Modal -->
+    <div id="tradingModal" class="modal" style="display: none;">
+        <div class="modal-background" onclick="closeModal('tradingModal')"></div>
+        <div class="modal-content trading-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-store"></i> Trading System</h2>
+                <div class="currency-display">
+                    <div class="currency-item">
+                        <i class="fas fa-coins"></i>
+                        <span id="playerCoins">1000</span>
+                    </div>
+                    <div class="currency-item">
+                        <i class="fas fa-gem"></i>
+                        <span id="playerGems">0</span>
+                    </div>
+                </div>
+                <button class="modal-close" onclick="closeModal('tradingModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body trading-content">
+                <div class="trading-tabs">
+                    <button class="tab-btn active" onclick="showTradingTab('marketplace')">
+                        <i class="fas fa-shopping-cart"></i>
+                        Marktplatz
+                    </button>
+                    <button class="tab-btn" onclick="showTradingTab('inventory')">
+                        <i class="fas fa-backpack"></i>
+                        Inventar
+                    </button>
+                </div>
+                
+                <!-- Marketplace Tab -->
+                <div id="marketplaceTab" class="trading-tab active">
+                    <div class="marketplace-section">
+                        <h3><i class="fas fa-fire"></i> Tägliche Angebote</h3>
+                        <div id="dailyDealsContainer" class="items-grid">
+                            <!-- Daily deals will be populated by JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <div class="marketplace-section">
+                        <h3><i class="fas fa-star"></i> Empfohlene Items</h3>
+                        <div id="featuredItemsContainer" class="items-grid">
+                            <!-- Featured items will be populated by JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <div class="marketplace-section">
+                        <h3><i class="fas fa-list"></i> Alle Items</h3>
+                        <div id="regularItemsContainer" class="items-grid">
+                            <!-- Regular items will be populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Inventory Tab -->
+                <div id="inventoryTab" class="trading-tab">
+                    <div class="inventory-tabs">
+                        <button class="inventory-tab-btn active" onclick="showInventoryTab('towers')">
+                            <i class="fas fa-chess-rook"></i>
+                            Tower Skins
+                        </button>
+                        <button class="inventory-tab-btn" onclick="showInventoryTab('backgrounds')">
+                            <i class="fas fa-image"></i>
+                            Hintergründe
+                        </button>
+                        <button class="inventory-tab-btn" onclick="showInventoryTab('effects')">
+                            <i class="fas fa-magic"></i>
+                            Effekte
+                        </button>
+                        <button class="inventory-tab-btn" onclick="showInventoryTab('items')">
+                            <i class="fas fa-bolt"></i>
+                            Items
+                        </button>
+                    </div>
+                    
+                    <div id="inventoryTowersContainer" class="inventory-container active">
+                        <!-- Tower skins inventory -->
+                    </div>
+                    
+                    <div id="inventoryBackgroundsContainer" class="inventory-container">
+                        <!-- Backgrounds inventory -->
+                    </div>
+                    
+                    <div id="inventoryEffectsContainer" class="inventory-container">
+                        <!-- Effects inventory -->
+                    </div>
+                    
+                    <div id="inventoryItemsContainer" class="inventory-container">
+                        <!-- Items inventory -->
+                    </div>
                 </div>
             </div>
         </div>
