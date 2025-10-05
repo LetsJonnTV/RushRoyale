@@ -41,6 +41,11 @@
                     <i class="fas fa-chart-bar"></i>
                     <span>Statistiken</span>
                 </button>
+                
+                <button id="mapSelection" class="menu-btn secondary">
+                    <i class="fas fa-map"></i>
+                    <span>Maps</span>
+                </button>
             </div>
             
             <div class="menu-footer">
@@ -222,6 +227,177 @@
                 <button class="menu-btn primary" onclick="saveSettings()">
                     <i class="fas fa-save"></i>
                     <span>Speichern</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistiken Modal -->
+    <div id="statisticsModal" class="modal" style="display: none;">
+        <div class="modal-background"></div>
+        <div class="modal-content statistics-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-chart-bar"></i> Spielstatistiken</h2>
+                <button class="modal-close" onclick="closeModal('statisticsModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Overview Stats -->
+                <div class="stats-overview">
+                    <div class="stat-highlight-card">
+                        <div class="stat-highlight-icon">
+                            <i class="fas fa-trophy"></i>
+                        </div>
+                        <div class="stat-highlight-content">
+                            <div class="stat-highlight-value" id="statsHighestWave">1</div>
+                            <div class="stat-highlight-label">Höchste Welle</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-highlight-card">
+                        <div class="stat-highlight-icon">
+                            <i class="fas fa-gamepad"></i>
+                        </div>
+                        <div class="stat-highlight-content">
+                            <div class="stat-highlight-value" id="statsTotalGames">0</div>
+                            <div class="stat-highlight-label">Spiele gespielt</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-highlight-card">
+                        <div class="stat-highlight-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="stat-highlight-content">
+                            <div class="stat-highlight-value" id="statsTotalPlayTime">0h 0m</div>
+                            <div class="stat-highlight-label">Gesamtspielzeit</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detailed Stats -->
+                <div class="stats-section">
+                    <h3><i class="fas fa-crosshairs"></i> Kampfstatistiken</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-name">Feinde besiegt</span>
+                            <span class="stat-value" id="statsTotalKills">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-name">Türme gebaut</span>
+                            <span class="stat-value" id="statsTowersBuilt">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-name">Upgrades durchgeführt</span>
+                            <span class="stat-value" id="statsUpgrades">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-name">Fähigkeiten verwendet</span>
+                            <span class="stat-value" id="statsAbilitiesUsed">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-section">
+                    <h3><i class="fas fa-coins"></i> Wirtschaftsstatistiken</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-name">Gold verdient</span>
+                            <span class="stat-value" id="statsTotalGold">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-name">Gold ausgegeben</span>
+                            <span class="stat-value" id="statsGoldSpent">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-name">Türme verkauft</span>
+                            <span class="stat-value" id="statsTowersSold">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-name">Höchster Score</span>
+                            <span class="stat-value" id="statsHighestScore">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-section">
+                    <h3><i class="fas fa-award"></i> Achievements</h3>
+                    <div class="achievements-grid" id="achievementsList">
+                        <!-- Achievements werden dynamisch hinzugefügt -->
+                    </div>
+                </div>
+
+                <div class="stats-section">
+                    <h3><i class="fas fa-chart-line"></i> Durchschnittswerte</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-name">Ø Wellen pro Spiel</span>
+                            <span class="stat-value" id="statsAvgWaves">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-name">Ø Kills pro Spiel</span>
+                            <span class="stat-value" id="statsAvgKills">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-name">Ø Gold pro Spiel</span>
+                            <span class="stat-value" id="statsAvgGold">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-name">Ø Spielzeit</span>
+                            <span class="stat-value" id="statsAvgPlayTime">0m</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="menu-btn secondary" onclick="resetStatistics()">
+                    <i class="fas fa-trash"></i>
+                    <span>Statistiken zurücksetzen</span>
+                </button>
+                <button class="menu-btn primary" onclick="closeModal('statisticsModal')">
+                    <i class="fas fa-check"></i>
+                    <span>Schließen</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Selection Modal -->
+    <div id="mapSelectionModal" class="modal" style="display: none;">
+        <div class="modal-background"></div>
+        <div class="modal-content map-selection-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-map"></i> Map Auswahl</h2>
+                <button class="modal-close" onclick="closeModal('mapSelectionModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="map-selection-description">
+                    Wähle eine Map für dein nächstes Spiel. Jede Map bietet einzigartige strategische Herausforderungen!
+                </p>
+                
+                <div class="maps-grid" id="mapsGrid">
+                    <!-- Maps werden dynamisch hinzugefügt -->
+                </div>
+                
+                <div class="current-map-info" id="currentMapInfo">
+                    <h3>Aktuell ausgewählt:</h3>
+                    <div class="selected-map-details">
+                        <div class="selected-map-name" id="selectedMapName">Klassische Route</div>
+                        <div class="selected-map-description" id="selectedMapDescription">Der ursprüngliche Pfad - perfekt für Anfänger</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="menu-btn secondary" onclick="closeModal('mapSelectionModal')">
+                    <i class="fas fa-times"></i>
+                    <span>Abbrechen</span>
+                </button>
+                <button class="menu-btn primary" onclick="confirmMapSelection()">
+                    <i class="fas fa-check"></i>
+                    <span>Map wählen</span>
                 </button>
             </div>
         </div>

@@ -6,6 +6,14 @@ class Game {
         // Load settings first
         this.settings = this.loadSettings();
         
+        // Initialize statistics
+        this.initializeStatistics();
+        this.gameStartTime = Date.now();
+        
+        // Initialize maps
+        this.initializeMaps();
+        this.currentMapId = localStorage.getItem('rushRoyalSelectedMap') || 'classic';
+        
         this.towers = [];
         this.enemies = [];
         this.projectiles = [];
@@ -57,25 +65,392 @@ class Game {
             damageBoost: false
         };
         
-        // Spielfeld-Pfad (skaliert für 1000x750 Canvas)
-        this.path = [
-            {x: 0, y: 375},
-            {x: 187, y: 375},
-            {x: 187, y: 187},
-            {x: 437, y: 187},
-            {x: 437, y: 562},
-            {x: 687, y: 562},
-            {x: 687, y: 312},
-            {x: 875, y: 312},
-            {x: 875, y: 125},
-            {x: 1000, y: 125}
-        ];
+        // Initialize current map
+        this.loadMap(this.currentMapId);
         
         this.setupEventListeners();
         this.setupMenuEventListeners();
         this.gameLoop();
         this.drawPath();
         this.applySettings();
+    }
+
+    // Map System
+    initializeMaps() {
+        this.maps = {
+            classic: {
+                id: 'classic',
+                name: 'Klassische Route',
+                description: 'Der ursprüngliche Pfad - perfekt für Anfänger',
+                difficulty: 'Einfach',
+                background: '#1a1a2e',
+                unlocked: true,
+                path: [
+                    {x: 0, y: 375},
+                    {x: 187, y: 375},
+                    {x: 187, y: 187},
+                    {x: 437, y: 187},
+                    {x: 437, y: 562},
+                    {x: 687, y: 562},
+                    {x: 687, y: 312},
+                    {x: 875, y: 312},
+                    {x: 875, y: 125},
+                    {x: 1000, y: 125}
+                ]
+            },
+            spiral: {
+                id: 'spiral',
+                name: 'Spiralweg',
+                description: 'Ein spiralförmiger Pfad mit längerer Route',
+                difficulty: 'Mittel',
+                background: '#0f3460',
+                unlocked: true,
+                path: [
+                    {x: 0, y: 375},
+                    {x: 150, y: 375},
+                    {x: 150, y: 150},
+                    {x: 850, y: 150},
+                    {x: 850, y: 600},
+                    {x: 300, y: 600},
+                    {x: 300, y: 300},
+                    {x: 700, y: 300},
+                    {x: 700, y: 450},
+                    {x: 450, y: 450},
+                    {x: 450, y: 400},
+                    {x: 1000, y: 400}
+                ]
+            },
+            zigzag: {
+                id: 'zigzag',
+                name: 'Zickzack-Chaos',
+                description: 'Viele scharfe Kurven - ideal für Slow-Türme',
+                difficulty: 'Mittel',
+                background: '#16537e',
+                unlocked: true,
+                path: [
+                    {x: 0, y: 100},
+                    {x: 200, y: 100},
+                    {x: 200, y: 250},
+                    {x: 400, y: 250},
+                    {x: 400, y: 100},
+                    {x: 600, y: 100},
+                    {x: 600, y: 400},
+                    {x: 800, y: 400},
+                    {x: 800, y: 200},
+                    {x: 900, y: 200},
+                    {x: 900, y: 650},
+                    {x: 1000, y: 650}
+                ]
+            },
+            cross: {
+                id: 'cross',
+                name: 'Kreuzung',
+                description: 'Mehrere Pfade kreuzen sich - strategische Herausforderung',
+                difficulty: 'Schwer',
+                background: '#2c1810',
+                unlocked: false,
+                unlockCondition: () => this.statistics.highestWave >= 15,
+                path: [
+                    {x: 0, y: 375},
+                    {x: 300, y: 375},
+                    {x: 300, y: 200},
+                    {x: 500, y: 200},
+                    {x: 500, y: 375},
+                    {x: 700, y: 375},
+                    {x: 700, y: 550},
+                    {x: 500, y: 550},
+                    {x: 500, y: 375},
+                    {x: 1000, y: 375}
+                ]
+            },
+            maze: {
+                id: 'maze',
+                name: 'Labyrinth',
+                description: 'Komplexer Pfad durch ein Labyrinth',
+                difficulty: 'Schwer',
+                background: '#4a148c',
+                unlocked: false,
+                unlockCondition: () => this.statistics.highestWave >= 20,
+                path: [
+                    {x: 0, y: 100},
+                    {x: 150, y: 100},
+                    {x: 150, y: 300},
+                    {x: 50, y: 300},
+                    {x: 50, y: 500},
+                    {x: 250, y: 500},
+                    {x: 250, y: 200},
+                    {x: 400, y: 200},
+                    {x: 400, y: 600},
+                    {x: 600, y: 600},
+                    {x: 600, y: 100},
+                    {x: 750, y: 100},
+                    {x: 750, y: 400},
+                    {x: 850, y: 400},
+                    {x: 850, y: 250},
+                    {x: 1000, y: 250}
+                ]
+            },
+            fortress: {
+                id: 'fortress',
+                name: 'Festungswall',
+                description: 'Kurzer, direkter Pfad - intensive Action',
+                difficulty: 'Extrem',
+                background: '#b71c1c',
+                unlocked: false,
+                unlockCondition: () => this.statistics.highestWave >= 25,
+                path: [
+                    {x: 0, y: 375},
+                    {x: 200, y: 375},
+                    {x: 200, y: 300},
+                    {x: 400, y: 300},
+                    {x: 400, y: 450},
+                    {x: 600, y: 450},
+                    {x: 600, y: 300},
+                    {x: 800, y: 300},
+                    {x: 800, y: 375},
+                    {x: 1000, y: 375}
+                ]
+            }
+        };
+    }
+
+    loadMap(mapId) {
+        const map = this.maps[mapId];
+        if (!map) {
+            console.error('Map not found:', mapId);
+            return;
+        }
+
+        this.currentMapId = mapId;
+        this.currentMap = map;
+        this.path = [...map.path]; // Copy path
+        
+        // Save selected map
+        localStorage.setItem('rushRoyalSelectedMap', mapId);
+        
+        // Update background if canvas exists
+        if (this.canvas) {
+            this.canvas.style.background = map.background;
+        }
+    }
+
+    checkMapUnlocks() {
+        Object.values(this.maps).forEach(map => {
+            if (!map.unlocked && map.unlockCondition && map.unlockCondition()) {
+                map.unlocked = true;
+                this.showMapUnlockNotification(map);
+            }
+        });
+    }
+
+    showMapUnlockNotification(map) {
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, var(--accent-purple), var(--primary-blue));
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            z-index: 10000;
+            font-weight: 500;
+            box-shadow: var(--shadow-xl);
+            transform: translateX(400px);
+            transition: transform 0.5s ease;
+            min-width: 300px;
+        `;
+        
+        notification.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <i class="fas fa-map" style="font-size: 1.5rem;"></i>
+                <div>
+                    <div style="font-weight: 700; margin-bottom: 0.25rem;">Neue Map freigeschaltet!</div>
+                    <div style="font-size: 0.9rem; opacity: 0.9;">${map.name}</div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Animate in
+        setTimeout(() => {
+            notification.style.transform = 'translateX(0)';
+        }, 100);
+        
+        // Remove after delay
+        setTimeout(() => {
+            notification.style.transform = 'translateX(400px)';
+            setTimeout(() => notification.remove(), 500);
+        }, 5000);
+    }
+
+    // Statistics Management
+    initializeStatistics() {
+        this.statistics = this.loadStatistics();
+        this.sessionStats = {
+            kills: 0,
+            towersBuilt: 0,
+            goldEarned: 0,
+            goldSpent: 0,
+            towersSold: 0,
+            upgrades: 0,
+            abilitiesUsed: 0,
+            currentWave: 1,
+            currentScore: 0
+        };
+    }
+
+    loadStatistics() {
+        const defaultStats = {
+            totalGames: 0,
+            highestWave: 1,
+            totalKills: 0,
+            totalGold: 0,
+            totalPlayTime: 0,
+            towersBuilt: 0,
+            goldSpent: 0,
+            towersSold: 0,
+            upgrades: 0,
+            abilitiesUsed: 0,
+            highestScore: 0,
+            achievements: {}
+        };
+
+        const saved = localStorage.getItem('rushRoyalStatistics');
+        return saved ? { ...defaultStats, ...JSON.parse(saved) } : defaultStats;
+    }
+
+    saveStatistics() {
+        localStorage.setItem('rushRoyalStatistics', JSON.stringify(this.statistics));
+    }
+
+    updateStatistic(stat, value) {
+        if (this.statistics[stat] !== undefined) {
+            this.statistics[stat] += value;
+            this.saveStatistics();
+        }
+    }
+
+    // Achievement System
+    getAchievements() {
+        return [
+            {
+                id: 'firstWin',
+                title: 'Erste Schritte',
+                description: 'Beende dein erstes Spiel',
+                icon: 'fas fa-baby',
+                condition: () => this.statistics.totalGames >= 1
+            },
+            {
+                id: 'wave10',
+                title: 'Überlebenskünstler',
+                description: 'Erreiche Welle 10',
+                icon: 'fas fa-shield-alt',
+                condition: () => this.statistics.highestWave >= 10
+            },
+            {
+                id: 'wave25',
+                title: 'Veteran',
+                description: 'Erreiche Welle 25',
+                icon: 'fas fa-medal',
+                condition: () => this.statistics.highestWave >= 25
+            },
+            {
+                id: 'killer100',
+                title: 'Jäger',
+                description: 'Besiege 100 Feinde',
+                icon: 'fas fa-crosshairs',
+                condition: () => this.statistics.totalKills >= 100
+            },
+            {
+                id: 'killer1000',
+                title: 'Schlächter',
+                description: 'Besiege 1000 Feinde',
+                icon: 'fas fa-skull',
+                condition: () => this.statistics.totalKills >= 1000
+            },
+            {
+                id: 'builder',
+                title: 'Architekt',
+                description: 'Baue 50 Türme',
+                icon: 'fas fa-chess-rook',
+                condition: () => this.statistics.towersBuilt >= 50
+            },
+            {
+                id: 'goldDigger',
+                title: 'Goldgräber',
+                description: 'Verdiene 10.000 Gold',
+                icon: 'fas fa-coins',
+                condition: () => this.statistics.totalGold >= 10000
+            },
+            {
+                id: 'marathon',
+                title: 'Marathon',
+                description: 'Spiele 10 Stunden',
+                icon: 'fas fa-clock',
+                condition: () => this.statistics.totalPlayTime >= 36000000 // 10 hours in ms
+            }
+        ];
+    }
+
+    checkAchievements() {
+        const achievements = this.getAchievements();
+        achievements.forEach(achievement => {
+            if (!this.statistics.achievements[achievement.id] && achievement.condition()) {
+                this.unlockAchievement(achievement);
+            }
+        });
+    }
+
+    unlockAchievement(achievement) {
+        this.statistics.achievements[achievement.id] = Date.now();
+        this.saveStatistics();
+        
+        // Show achievement notification
+        this.showAchievementNotification(achievement);
+    }
+
+    showAchievementNotification(achievement) {
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, var(--accent-gold), #f59e0b);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            z-index: 10000;
+            font-weight: 500;
+            box-shadow: var(--shadow-xl);
+            transform: translateX(400px);
+            transition: transform 0.5s ease;
+            min-width: 300px;
+        `;
+        
+        notification.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <i class="${achievement.icon}" style="font-size: 1.5rem;"></i>
+                <div>
+                    <div style="font-weight: 700; margin-bottom: 0.25rem;">Achievement freigeschaltet!</div>
+                    <div style="font-size: 0.9rem; opacity: 0.9;">${achievement.title}</div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Animate in
+        setTimeout(() => {
+            notification.style.transform = 'translateX(0)';
+        }, 100);
+        
+        // Remove after delay
+        setTimeout(() => {
+            notification.style.transform = 'translateX(400px)';
+            setTimeout(() => notification.remove(), 500);
+        }, 4000);
     }
 
     // Settings Management
@@ -175,6 +550,11 @@ class Game {
             // Canvas-Größe korrekt setzen (größer für bessere Sichtbarkeit)
             this.canvas.width = 1000;
             this.canvas.height = 750;
+            
+            // Set map background
+            if (this.currentMap) {
+                this.canvas.style.background = this.currentMap.background;
+            }
         } else {
             // Fallback: Canvas wird später initialisiert wenn Spiel gestartet wird
             setTimeout(() => this.initializeCanvas(), 100);
@@ -332,6 +712,13 @@ class Game {
             this.towers.push(tower);
             this.money -= cost;
             this.towersBuilt++;
+            
+            // Update statistics
+            this.sessionStats.towersBuilt++;
+            this.sessionStats.goldSpent += cost;
+            this.updateStatistic('towersBuilt', 1);
+            this.updateStatistic('goldSpent', cost);
+            
             this.updateUI();
             this.checkAchievements();
             
@@ -721,6 +1108,13 @@ class Game {
         if (this.money >= upgradeCost) {
             this.money -= upgradeCost;
             this.selectedTower.upgrade();
+            
+            // Update statistics
+            this.sessionStats.upgrades++;
+            this.sessionStats.goldSpent += upgradeCost;
+            this.updateStatistic('upgrades', 1);
+            this.updateStatistic('goldSpent', upgradeCost);
+            
             this.updateUI();
             this.showTowerUpgrade(this.selectedTower);
         }
@@ -731,6 +1125,12 @@ class Game {
         
         const sellValue = Math.floor(this.selectedTower.value * 0.7);
         this.money += sellValue;
+        
+        // Update statistics
+        this.sessionStats.towersSold++;
+        this.sessionStats.goldEarned += sellValue;
+        this.updateStatistic('towersSold', 1);
+        this.updateStatistic('totalGold', sellValue);
         
         this.towers = this.towers.filter(tower => tower !== this.selectedTower);
         this.selectedTower = null;
@@ -800,6 +1200,13 @@ class Game {
         if (success) {
             this.money -= cost;
             ability.cooldown = ability.maxCooldown;
+            
+            // Update statistics
+            this.sessionStats.abilitiesUsed++;
+            this.sessionStats.goldSpent += cost;
+            this.updateStatistic('abilitiesUsed', 1);
+            this.updateStatistic('goldSpent', cost);
+            
             this.updateUI();
         } else {
             this.showMessage('Nicht genug Geld!');
@@ -1027,6 +1434,11 @@ class Game {
             statisticsBtn.addEventListener('click', () => this.showStatistics());
         }
 
+        const mapSelectionBtn = document.getElementById('mapSelection');
+        if (mapSelectionBtn) {
+            mapSelectionBtn.addEventListener('click', () => this.showMapSelection());
+        }
+
         // Settings Modal Event Listeners
         this.setupSettingsEventListeners();        // Game Over Screen Event Listeners
         const playAgainBtn = document.getElementById('playAgain');
@@ -1056,6 +1468,20 @@ class Game {
         // Spiel zurücksetzen und starten
         this.restartGame();
         this.gamePaused = false;
+        
+        // Reset session statistics
+        this.gameStartTime = Date.now();
+        this.sessionStats = {
+            kills: 0,
+            towersBuilt: 0,
+            goldEarned: 0,
+            goldSpent: 0,
+            towersSold: 0,
+            upgrades: 0,
+            abilitiesUsed: 0,
+            currentWave: 1,
+            currentScore: 0
+        };
     }
     
     showMainMenu() {
@@ -1184,8 +1610,200 @@ class Game {
     }
     
     showStatistics() {
-        const stats = this.getGameStatistics();
-        this.showMessage(`Statistiken: ${stats.totalGames} Spiele gespielt, Höchste Welle: ${stats.highestWave}`, 'info');
+        const modal = document.getElementById('statisticsModal');
+        if (modal) {
+            this.updateStatisticsDisplay();
+            modal.style.display = 'flex';
+        }
+    }
+
+    updateStatisticsDisplay() {
+        // Update highlight cards
+        document.getElementById('statsHighestWave').textContent = this.statistics.highestWave;
+        document.getElementById('statsTotalGames').textContent = this.statistics.totalGames;
+        
+        // Format play time
+        const hours = Math.floor(this.statistics.totalPlayTime / 3600000);
+        const minutes = Math.floor((this.statistics.totalPlayTime % 3600000) / 60000);
+        document.getElementById('statsTotalPlayTime').textContent = `${hours}h ${minutes}m`;
+
+        // Update detailed stats
+        document.getElementById('statsTotalKills').textContent = this.statistics.totalKills.toLocaleString();
+        document.getElementById('statsTowersBuilt').textContent = this.statistics.towersBuilt.toLocaleString();
+        document.getElementById('statsUpgrades').textContent = this.statistics.upgrades.toLocaleString();
+        document.getElementById('statsAbilitiesUsed').textContent = this.statistics.abilitiesUsed.toLocaleString();
+        document.getElementById('statsTotalGold').textContent = this.statistics.totalGold.toLocaleString();
+        document.getElementById('statsGoldSpent').textContent = this.statistics.goldSpent.toLocaleString();
+        document.getElementById('statsTowersSold').textContent = this.statistics.towersSold.toLocaleString();
+        document.getElementById('statsHighestScore').textContent = this.statistics.highestScore.toLocaleString();
+
+        // Update averages
+        const totalGames = Math.max(1, this.statistics.totalGames);
+        document.getElementById('statsAvgWaves').textContent = Math.round(this.statistics.highestWave / totalGames);
+        document.getElementById('statsAvgKills').textContent = Math.round(this.statistics.totalKills / totalGames);
+        document.getElementById('statsAvgGold').textContent = Math.round(this.statistics.totalGold / totalGames).toLocaleString();
+        
+        const avgPlayTimeMinutes = Math.round(this.statistics.totalPlayTime / totalGames / 60000);
+        document.getElementById('statsAvgPlayTime').textContent = `${avgPlayTimeMinutes}m`;
+
+        // Update achievements
+        this.updateAchievementsDisplay();
+    }
+
+    showMapSelection() {
+        const modal = document.getElementById('mapSelectionModal');
+        if (modal) {
+            this.updateMapSelectionDisplay();
+            modal.style.display = 'flex';
+        }
+    }
+
+    updateMapSelectionDisplay() {
+        const mapsGrid = document.getElementById('mapsGrid');
+        const selectedMapName = document.getElementById('selectedMapName');
+        const selectedMapDescription = document.getElementById('selectedMapDescription');
+        
+        if (!mapsGrid) return;
+        
+        // Update current selection info
+        const currentMap = this.maps[this.currentMapId];
+        if (selectedMapName && selectedMapDescription && currentMap) {
+            selectedMapName.textContent = currentMap.name;
+            selectedMapDescription.textContent = currentMap.description;
+        }
+        
+        // Clear and rebuild maps grid
+        mapsGrid.innerHTML = '';
+        
+        Object.values(this.maps).forEach(map => {
+            const mapCard = document.createElement('div');
+            mapCard.className = `map-card ${map.id === this.currentMapId ? 'selected' : ''} ${!map.unlocked ? 'locked' : ''}`;
+            mapCard.dataset.mapId = map.id;
+            
+            const difficultyClass = {
+                'Einfach': 'difficulty-easy',
+                'Mittel': 'difficulty-medium', 
+                'Schwer': 'difficulty-hard',
+                'Extrem': 'difficulty-extreme'
+            }[map.difficulty] || 'difficulty-easy';
+            
+            mapCard.innerHTML = `
+                <div class="map-preview" style="background: ${map.background};">
+                    <canvas class="map-path-preview" width="200" height="80"></canvas>
+                </div>
+                <div class="map-info">
+                    <div class="map-name">${map.name}</div>
+                    <div class="map-description">${map.description}</div>
+                    <div class="map-difficulty ${difficultyClass}">${map.difficulty}</div>
+                </div>
+                ${!map.unlocked ? `
+                    <div class="map-lock-overlay">
+                        <div class="map-lock-content">
+                            <div class="map-lock-icon">
+                                <i class="fas fa-lock"></i>
+                            </div>
+                            <div class="map-unlock-requirement">
+                                Erreiche Welle ${map.unlockCondition ? map.unlockCondition.toString().match(/\d+/)?.[0] || '?' : '?'}
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+            `;
+            
+            // Draw mini path preview
+            const canvas = mapCard.querySelector('.map-path-preview');
+            if (canvas && map.unlocked) {
+                this.drawMiniPath(canvas, map.path);
+            }
+            
+            // Add click handler for unlocked maps
+            if (map.unlocked) {
+                mapCard.addEventListener('click', () => {
+                    // Remove selection from other cards
+                    document.querySelectorAll('.map-card').forEach(card => {
+                        card.classList.remove('selected');
+                    });
+                    
+                    // Select this card
+                    mapCard.classList.add('selected');
+                    
+                    // Update selection info
+                    if (selectedMapName && selectedMapDescription) {
+                        selectedMapName.textContent = map.name;
+                        selectedMapDescription.textContent = map.description;
+                    }
+                    
+                    // Store temporary selection
+                    this.tempSelectedMapId = map.id;
+                });
+            }
+            
+            mapsGrid.appendChild(mapCard);
+        });
+        
+        // Initialize temp selection
+        this.tempSelectedMapId = this.currentMapId;
+    }
+
+    drawMiniPath(canvas, path) {
+        const ctx = canvas.getContext('2d');
+        const scale = 0.2; // Scale down the path coordinates
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (path.length < 2) return;
+        
+        // Draw path
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        ctx.beginPath();
+        ctx.moveTo(path[0].x * scale, path[0].y * scale);
+        
+        for (let i = 1; i < path.length; i++) {
+            ctx.lineTo(path[i].x * scale, path[i].y * scale);
+        }
+        
+        ctx.stroke();
+        
+        // Draw start point
+        ctx.fillStyle = '#10b981';
+        ctx.beginPath();
+        ctx.arc(path[0].x * scale, path[0].y * scale, 4, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw end point
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(path[path.length - 1].x * scale, path[path.length - 1].y * scale, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    updateAchievementsDisplay() {
+        const achievementsList = document.getElementById('achievementsList');
+        const achievements = this.getAchievements();
+        
+        achievementsList.innerHTML = '';
+        
+        achievements.forEach(achievement => {
+            const isUnlocked = this.statistics.achievements[achievement.id];
+            const achievementEl = document.createElement('div');
+            achievementEl.className = `achievement-item ${isUnlocked ? 'unlocked' : ''}`;
+            
+            achievementEl.innerHTML = `
+                <div class="achievement-icon">
+                    <i class="${achievement.icon}"></i>
+                </div>
+                <div class="achievement-content">
+                    <div class="achievement-title">${achievement.title}</div>
+                    <div class="achievement-description">${achievement.description}</div>
+                </div>
+            `;
+            
+            achievementsList.appendChild(achievementEl);
+        });
     }
     
     getGameStatistics() {
@@ -1299,6 +1917,13 @@ class Game {
                 this.goldEarned += baseReward;
                 this.score += enemy.points * this.comboMultiplier;
                 this.totalKills++;
+                
+                // Update statistics
+                this.sessionStats.kills++;
+                this.sessionStats.goldEarned += baseReward;
+                this.updateStatistic('totalKills', 1);
+                this.updateStatistic('totalGold', baseReward);
+                
                 this.enemies.splice(i, 1);
                 this.updateUI();
                 this.checkAchievements();
@@ -1761,6 +2386,24 @@ class Game {
     
     gameOver() {
         this.gameRunning = false;
+        
+        // Update session end statistics
+        const playTime = Date.now() - this.gameStartTime;
+        this.updateStatistic('totalGames', 1);
+        this.updateStatistic('totalPlayTime', playTime);
+        
+        if (this.wave > this.statistics.highestWave) {
+            this.statistics.highestWave = this.wave;
+        }
+        
+        if (this.score > this.statistics.highestScore) {
+            this.statistics.highestScore = this.score;
+        }
+        
+        this.saveStatistics();
+        this.checkAchievements();
+        this.checkMapUnlocks();
+        
         this.updateStatistics();
         
         // Zeige den neuen Game Over Screen
@@ -2395,6 +3038,72 @@ function resetSettings() {
         game.settings = defaultSettings;
         game.loadSettingsIntoUI();
         game.applySettings();
+    }
+}
+
+function confirmMapSelection() {
+    if (game && game.tempSelectedMapId) {
+        const selectedMap = game.maps[game.tempSelectedMapId];
+        if (selectedMap && selectedMap.unlocked) {
+            game.loadMap(game.tempSelectedMapId);
+            closeModal('mapSelectionModal');
+            
+            // Show confirmation
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: var(--primary-blue);
+                color: white;
+                padding: 1rem 1.5rem;
+                border-radius: 8px;
+                z-index: 10000;
+                font-weight: 500;
+                box-shadow: var(--shadow-lg);
+            `;
+            notification.textContent = `Map gewechselt zu: ${selectedMap.name}`;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+    }
+}
+
+function resetStatistics() {
+    if (game && confirm('Möchtest du wirklich alle Statistiken zurücksetzen? Diese Aktion kann nicht rückgängig gemacht werden.')) {
+        localStorage.removeItem('rushRoyalStatistics');
+        game.initializeStatistics();
+        game.updateStatisticsDisplay();
+        
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--danger-red);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            z-index: 10000;
+            font-weight: 500;
+            box-shadow: var(--shadow-lg);
+        `;
+        notification.textContent = 'Statistiken zurückgesetzt!';
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
+    }
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'none';
     }
 }
 
