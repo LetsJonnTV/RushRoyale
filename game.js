@@ -483,6 +483,7 @@ class Game {
         this.skillPoints += amount;
         localStorage.setItem('rushRoyalSkillPoints', this.skillPoints.toString());
         this.saveSkills();
+        this.updateSkillPointsBadge();
         console.log(`Earned ${amount} skill points. Total: ${this.skillPoints}`);
     }
 
@@ -602,6 +603,7 @@ class Game {
         this.skillPoints -= cost;
         this.skills[skillId] = currentLevel + 1;
         this.saveSkills();
+        this.updateSkillPointsBadge();
         
         return true;
     }
@@ -2345,35 +2347,54 @@ class Game {
     }
     
     setupMenuEventListeners() {
-        // Hauptmenü Event Listeners
-        const startGameBtn = document.getElementById('startGame');
-        const howToPlayBtn = document.getElementById('howToPlay');
-        const settingsBtn = document.getElementById('settings');
-        const statisticsBtn = document.getElementById('statistics');
-        
-        if (startGameBtn) {
-            startGameBtn.addEventListener('click', () => this.startGameFromMenu());
-        }
-        
-        if (howToPlayBtn) {
-            howToPlayBtn.addEventListener('click', () => this.showHowToPlay());
-        }
-        
-        if (settingsBtn) {
-            settingsBtn.addEventListener('click', () => this.showSettings());
-        }
+        // Warten bis DOM vollständig geladen ist
+        setTimeout(() => {
+            // Hauptmenü Event Listeners
+            const startGameBtn = document.getElementById('startGame');
+            const howToPlayBtn = document.getElementById('howToPlay');
+            const settingsBtn = document.getElementById('settings');
+            const statisticsBtn = document.getElementById('statistics');
+            
+            if (startGameBtn) {
+                startGameBtn.addEventListener('click', () => this.startGameFromMenu());
+            }
+            
+            if (howToPlayBtn) {
+                howToPlayBtn.addEventListener('click', () => this.showHowToPlay());
+            }
+            
+            if (settingsBtn) {
+                settingsBtn.addEventListener('click', () => this.showSettings());
+            }
 
-        if (statisticsBtn) {
-            statisticsBtn.addEventListener('click', () => this.showStatistics());
-        }
+            if (statisticsBtn) {
+                statisticsBtn.addEventListener('click', () => this.showStatistics());
+            }
 
-        const mapSelectionBtn = document.getElementById('mapSelection');
-        if (mapSelectionBtn) {
-            mapSelectionBtn.addEventListener('click', () => this.showMapSelection());
-        }
+            const skillTreeMenuBtn = document.getElementById('skillTreeMenu');
+            if (skillTreeMenuBtn) {
+                skillTreeMenuBtn.addEventListener('click', () => {
+                    console.log('Skill Tree button clicked!');
+                    this.showSkillTreeFromMenu();
+                });
+            }
+
+            const mapSelectionBtn = document.getElementById('mapSelection');
+            if (mapSelectionBtn) {
+                mapSelectionBtn.addEventListener('click', () => this.showMapSelection());
+            }
+
+            // Changelog Button
+            const changelogBtn = document.getElementById('changelogBtn');
+            if (changelogBtn) {
+                changelogBtn.addEventListener('click', () => showChangelog());
+            }
+        }, 100);
 
         // Settings Modal Event Listeners
-        this.setupSettingsEventListeners();        // Game Over Screen Event Listeners
+        this.setupSettingsEventListeners();
+        
+        // Game Over Screen Event Listeners
         const playAgainBtn = document.getElementById('playAgain');
         const backToMenuBtn = document.getElementById('backToMenu');
         
@@ -2389,9 +2410,11 @@ class Game {
     startGameFromMenu() {
         const mainMenu = document.getElementById('mainMenu');
         const gameContainer = document.getElementById('gameContainer');
+        const changelogBtn = document.getElementById('changelogBtn');
         
         if (mainMenu) mainMenu.style.display = 'none';
         if (gameContainer) gameContainer.style.display = 'block';
+        if (changelogBtn) changelogBtn.style.display = 'none'; // Button verstecken im Spiel
         
         // Canvas initialisieren falls nicht bereits geschehen
         if (!this.canvas) {
@@ -2421,10 +2444,15 @@ class Game {
         const mainMenu = document.getElementById('mainMenu');
         const gameContainer = document.getElementById('gameContainer');
         const gameOverScreen = document.getElementById('gameOverScreen');
+        const changelogBtn = document.getElementById('changelogBtn');
         
         if (mainMenu) mainMenu.style.display = 'flex';
         if (gameContainer) gameContainer.style.display = 'none';
         if (gameOverScreen) gameOverScreen.style.display = 'none';
+        if (changelogBtn) changelogBtn.style.display = 'flex'; // Button wieder anzeigen im Hauptmenü
+        
+        // Skill Points Badge aktualisieren
+        this.updateSkillPointsBadge();
         
         // Spiel pausieren
         this.gamePaused = true;
@@ -2547,6 +2575,43 @@ class Game {
         if (modal) {
             this.updateStatisticsDisplay();
             modal.style.display = 'flex';
+        }
+    }
+
+    showSkillTreeFromMenu() {
+        console.log('showSkillTreeFromMenu called');
+        const modal = document.getElementById('skillTreeModal');
+        console.log('Modal found:', modal);
+        console.log('Modal current display style:', modal ? modal.style.display : 'modal not found');
+        if (modal) {
+            console.log('Updating skill tree UI...');
+            this.updateSkillTreeUI();
+            console.log('Setting modal display to flex...');
+            modal.style.display = 'flex';
+            // Temporärer roter Hintergrund für Debug
+            modal.style.background = 'rgba(255, 0, 0, 0.5)';
+            modal.style.zIndex = '99999';
+            console.log('Modal display after setting:', modal.style.display);
+            console.log('Modal computed styles:', window.getComputedStyle(modal));
+            console.log('Modal should now be visible');
+        } else {
+            console.error('skillTreeModal element not found in DOM!');
+        }
+    }
+
+    updateSkillPointsBadge() {
+        const badge = document.getElementById('skillPointsBadge');
+        const button = document.getElementById('skillTreeMenu');
+        
+        if (badge && button) {
+            if (this.skillPoints > 0) {
+                badge.textContent = this.skillPoints;
+                badge.style.display = 'block';
+                button.classList.add('has-points');
+            } else {
+                badge.style.display = 'none';
+                button.classList.remove('has-points');
+            }
         }
     }
 
@@ -4450,6 +4515,85 @@ function resetStatistics() {
     }
 }
 
+// Changelog Funktionalität
+async function loadChangelog() {
+    try {
+        const response = await fetch('changelog.md');
+        if (!response.ok) {
+            throw new Error('Changelog nicht gefunden');
+        }
+        const markdown = await response.text();
+        return parseMarkdownToHTML(markdown);
+    } catch (error) {
+        console.error('Fehler beim Laden des Changelogs:', error);
+        return '<p>Changelog konnte nicht geladen werden.</p>';
+    }
+}
+
+function parseMarkdownToHTML(markdown) {
+    let html = markdown;
+    
+    // Headers
+    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+    
+    // Bold text
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    // Lists - erst die Listenpunkte markieren
+    const lines = html.split('\n');
+    let inList = false;
+    let result = [];
+    
+    for (let line of lines) {
+        if (line.trim().startsWith('- ')) {
+            if (!inList) {
+                result.push('<ul>');
+                inList = true;
+            }
+            result.push('<li>' + line.substring(2).trim() + '</li>');
+        } else {
+            if (inList) {
+                result.push('</ul>');
+                inList = false;
+            }
+            result.push(line);
+        }
+    }
+    
+    if (inList) {
+        result.push('</ul>');
+    }
+    
+    html = result.join('\n');
+    
+    // Line breaks
+    html = html.replace(/\n/g, '<br>');
+    
+    // Horizontal rules
+    html = html.replace(/---<br>/g, '<hr>');
+    
+    // Code blocks
+    html = html.replace(/`(.*?)`/g, '<code>$1</code>');
+    
+    return html;
+}
+
+function showChangelog() {
+    const modal = document.getElementById('changelogModal');
+    const content = document.getElementById('changelogContent');
+    
+    if (modal && content) {
+        modal.style.display = 'flex';
+        content.innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Lade Changelog...</p>';
+        
+        loadChangelog().then(html => {
+            content.innerHTML = html;
+        });
+    }
+}
+
 function closeModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
@@ -4487,10 +4631,15 @@ let game;
 window.addEventListener('load', () => {
     game = new Game();
     
+    // Skill Points Badge initial aktualisieren
+    game.updateSkillPointsBadge();
+    
     // Hauptmenü initial anzeigen
     const mainMenu = document.getElementById('mainMenu');
     const gameContainer = document.getElementById('gameContainer');
+    const changelogBtn = document.getElementById('changelogBtn');
     
     if (mainMenu) mainMenu.style.display = 'flex';
     if (gameContainer) gameContainer.style.display = 'none';
+    if (changelogBtn) changelogBtn.style.display = 'flex'; // Button initial anzeigen
 });

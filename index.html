@@ -42,15 +42,26 @@
                     <span>Statistiken</span>
                 </button>
                 
+                <button id="skillTreeMenu" class="menu-btn secondary skill-tree-btn">
+                    <i class="fas fa-magic"></i>
+                    <span>Skills & Upgrades</span>
+                    <div id="skillPointsBadge" class="skill-points-badge" style="display: none;">0</div>
+                </button>
+                
                 <button id="mapSelection" class="menu-btn secondary">
                     <i class="fas fa-map"></i>
                     <span>Maps</span>
                 </button>
             </div>
             
+            <!-- Was ist neu Button -->
+            <button id="changelogBtn" class="changelog-button" title="Was ist neu?">
+                <i class="fas fa-question"></i>
+            </button>
+            
             <div class="menu-footer">
-                <p>&copy; 2025 Rush Royal - Tower Defense Elite</p>
-                <p>Version 1.0</p>
+                <p>&copy; 2025 Rush Royal - Tower Defense Elite, by Jonn2008</p>
+                <p>Version 2.0.0</p>
             </div>
         </div>
     </div>
@@ -860,8 +871,8 @@
         </div>
         
         <!-- Skill Tree Modal -->
-        <div id="skillTreeModal" class="skill-tree-modal" style="display: none;">
-            <div class="skill-tree-background"></div>
+        <div id="skillTreeModal" class="modal skill-tree-modal" style="display: none;">
+            <div class="modal-background skill-tree-background"></div>
             <div class="skill-tree-content">
                 <div class="skill-tree-header">
                     <h2><i class="fas fa-tree"></i> Skill Tree</h2>
@@ -1022,6 +1033,24 @@
                 </div>
             </div>
         </footer>
+    </div>
+
+    <!-- Changelog Modal -->
+    <div id="changelogModal" class="modal" style="display: none;">
+        <div class="modal-background"></div>
+        <div class="modal-content changelog-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-clipboard-list"></i> Was ist neu?</h2>
+                <button class="modal-close" onclick="closeModal('changelogModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="changelogContent" class="changelog-content">
+                    <p>Lade Changelog...</p>
+                </div>
+            </div>
+        </div>
     </div>
     
     <script src="game.js"></script>
