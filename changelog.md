@@ -5,7 +5,69 @@ Alle wichtigen Änderungen an diesem Projekt werden in dieser Datei dokumentiert
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und dieses Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/de/).
 
-## [Unreleased]
+
+## [4.0.0] - 2025-10-06
+
+### 🎯 Major Features Added
+- **🏖️ Sandbox Mode**: Vollständig anpassbarer Spielmodus für ultimative Kreativität
+  - **Ressourcen-Anpassung**: Flexibles Starten mit beliebigen Gold- und Material-Mengen (0-999.999)
+  - **Spielgeschwindigkeit**: Variable Geschwindigkeiten von 0.5x bis 5.0x für entspanntes oder intensives Gameplay
+  - **Unendlich-Modi**: 
+    - Infinite Lives: Experimentieren ohne Konsequenzen
+    - Auto Wave Start: Automatischer Wellen-Fortschritt ohne manuelles Starten
+  - **Persistente Einstellungen**: Alle Sandbox-Konfigurationen werden zwischen Sitzungen gespeichert
+  - **Visueller Sandbox-Indikator**: Klare Kennzeichnung im Spiel mit Verlaufs-Design
+  - **Premium-UI**: Hochwertige Benutzeroberfläche mit responsivem Grid-Layout
+
+### 🏗️ Enhanced Base Building System
+- **🔒 Ressourcen-Validierung**: Kritische Sicherheitslücke im Basis-Bau-System behoben
+  - **Kostenprüfung**: Gebäude und Dekorationen können nur noch mit ausreichenden Ressourcen platziert werden
+  - **Dynamische Kostenverfolgung**: Echtzeit-Anzeige der Baukosten beim Auswählen von Items
+  - **Intelligente Fehlermeldungen**: Klare Benachrichtigungen bei unzureichenden Ressourcen
+  - **Automatischer Ressourcen-Abzug**: Kosten werden sofort nach erfolgreicher Platzierung abgezogen
+  - **Kostenstruktur**:
+    - Gebäude: Haus (10 Materialien), Turm (20 Materialien)
+    - Dekorationen: Felsen (3 Punkte), Baum (5 Punkte), Brunnen (15 Punkte)
+
+### 🎮 User Experience Improvements
+- **Erweiterte Anleitung**: Vollständig überarbeitetes Tutorial-System
+  - Detaillierte Sandbox-Mode-Erklärung mit allen Features
+  - Schritt-für-Schritt Anleitung für neue Spieler
+  - Erweiterte Tipps und Tricks Sektion
+- **Verbesserte Navigation**: Optimierte Benutzerführung zwischen verschiedenen Spielmodi
+- **Responsive Design**: Vollständige Mobile- und Tablet-Optimierung für alle neuen Features
+- **Performance-Optimierung**: Effizientere Ressourcen-Verwaltung und UI-Updates
+
+### 🔧 Technical Enhancements
+- **Modular Sandbox-System**: Saubere Code-Architektur mit separater SandboxMode-Klasse
+- **Advanced Settings Management**: Robuste Einstellungs-Persistierung mit localStorage
+- **Error Handling**: Umfassendes Fehler-Management für alle Sandbox-Features
+- **Debugging-System**: Erweiterte Logging-Funktionen für bessere Entwicklung und Support
+- **Code-Qualität**: Verbesserte Struktur und Wartbarkeit des gesamten Codebases
+
+### 🚨 Critical Bug Fixes
+- **🎮 Game Start Issues**: Mehrere kritische Startprobleme behoben
+  - Normal Game Start Button: Event-Listener-Konflikte behoben
+  - Sandbox Start Button: Initialisierungs-Timing-Probleme gelöst
+  - Improved Error Handling: Robuste Fehlerbehandlung für alle Startszenarien
+- **🏗️ Base Building Resource Exploit**: Schwerwiegender Gameplay-Bug behoben
+  - Vorher: Spieler konnten unendlich bauen ohne Ressourcen-Verbrauch
+  - Nachher: Vollständige Ressourcen-Validierung mit fairem Gameplay
+- **💾 Settings Persistence**: Zuverlässige Speicherung aller Sandbox-Einstellungen
+
+### 🎨 Visual Design Updates
+- **Sandbox UI Design**: Hochwertige Benutzeroberfläche mit modernem Look
+  - Verlaufs-Buttons mit Hover-Effekten
+  - Responsive Grid-Layout für alle Bildschirmgrößen
+  - Dark-Mode kompatibles Design
+  - Premium-Feeling durch abgestimmte Farbpalette
+- **Improved Notifications**: Bessere Feedback-Systeme für Benutzerinteraktionen
+- **Enhanced Visual Feedback**: Klarere Status-Indikatoren und Bestätigungen
+
+### 📚 Documentation & Support
+- **Comprehensive Help System**: Vollständig erweiterte Hilfe-Sektion
+- **Version History**: Detaillierte Changelog-Integration
+- **Developer Documentation**: Verbesserte Code-Dokumentation für künftige Entwicklung
 
 ## [3.0.0] - 2025-10-05
 

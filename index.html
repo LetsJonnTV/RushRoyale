@@ -20,7 +20,7 @@
                 </div>
                 <h1 class="logo-title">Rush Royal</h1>
                 <p class="logo-subtitle">Tower Defense Elite</p>
-                <div class="version-badge">v3.0.0</div>
+                <div class="version-badge">v4.0.0</div>
             </div>
             
             <!-- Player Status Bar -->
@@ -69,6 +69,11 @@
                             <i class="fas fa-edit"></i>
                             <span>Map Editor</span>
                         </button>
+
+                        <button id="sandboxMode" class="menu-btn secondary">
+                            <i class="fas fa-cube"></i>
+                            <span>Sandbox Modus</span>
+                        </button>
                     </div>
                 </div>
 
@@ -88,6 +93,11 @@
                         <button id="towerPrestige" class="menu-btn secondary">
                             <i class="fas fa-crown"></i>
                             <span>Tower Prestige</span>
+                        </button>
+
+                        <button id="researchLab" class="menu-btn secondary">
+                            <i class="fas fa-flask"></i>
+                            <span>Research Lab</span>
                         </button>
 
                         <button id="statistics" class="menu-btn secondary">
@@ -112,6 +122,11 @@
                         <button id="tradingSystem" class="menu-btn secondary">
                             <i class="fas fa-store"></i>
                             <span>Trading</span>
+                        </button>
+
+                        <button id="baseBuilder" class="menu-btn secondary">
+                            <i class="fas fa-home"></i>
+                            <span>Basis</span>
                         </button>
                     </div>
                 </div>
@@ -844,6 +859,42 @@
                         <li>Verliere nicht alle deine Leben!</li>
                         <li>Upgrade deine Türme für mehr Schaden</li>
                         <li>Nutze Spezialfähigkeiten in kritischen Momenten</li>
+                    </ul>
+                </div>
+                
+                <div class="instruction-section sandbox-guide">
+                    <h3><i class="fas fa-cube"></i> Sandbox Modus</h3>
+                    <p><strong>Experimentiere ohne Grenzen!</strong> Der Sandbox-Modus bietet:</p>
+                    <ul>
+                        <li><strong>Unendliche Ressourcen:</strong> Starte mit 999,999 Gold und beliebig vielen Leben</li>
+                        <li><strong>Freie Anpassungen:</strong> Ändere Spielgeschwindigkeit, Feind-Stärke und Wellen-Größe</li>
+                        <li><strong>Alle Inhalte freigeschaltet:</strong> Zugang zu allen Türmen, Upgrades und Fähigkeiten</li>
+                        <li><strong>Unendliche Leben:</strong> Optional kannst du unbesiegbar werden</li>
+                        <li><strong>Auto-Wave:</strong> Automatische Wellen für entspanntes Spielen</li>
+                    </ul>
+                    <p><em>Perfekt zum Testen von Strategien oder einfach zum Spaß haben!</em></p>
+                </div>
+                
+                <div class="instruction-section">
+                    <h3><i class="fas fa-flask"></i> Research Laboratory</h3>
+                    <p>Entwickle neue Technologien für dauerhafte Verbesserungen:</p>
+                    <ul>
+                        <li><strong>Forschungspunkte:</strong> Verdiene sie durch das Besiegen von Feinden</li>
+                        <li><strong>Wissenschaftspunkte:</strong> Seltene Ressource für erweiterte Forschung</li>
+                        <li><strong>Tech-Bäume:</strong> Turm-, Verteidigungs- und erweiterte Technologien</li>
+                        <li><strong>Permanente Effekte:</strong> Forschung bleibt zwischen den Spielen erhalten</li>
+                    </ul>
+                </div>
+                
+                <div class="instruction-section">
+                    <h3><i class="fas fa-hammer"></i> Base Building</h3>
+                    <p>Gestalte deine eigene Basis und sammle Designs:</p>
+                    <ul>
+                        <li><strong>Canvas-Editor:</strong> Platziere Gebäude und Dekorationen frei</li>
+                        <li><strong>Baumaterialien:</strong> Verdiene sie durch erfolgreiche Wellen</li>
+                        <li><strong>Werkzeuge:</strong> Auswählen, Platzieren, Verschieben, Löschen</li>
+                        <li><strong>Galerie:</strong> Speichere und lade verschiedene Basis-Designs</li>
+                        <li><strong>Dekorationspunkte:</strong> Spezielle Währung für besondere Objekte</li>
                     </ul>
                 </div>
             </div>
@@ -1661,6 +1712,312 @@
                 <h3><i class="fas fa-chart-line"></i> Aktive Prestige-Boni</h3>
                 <div id="prestigeBonusesList" class="prestige-bonuses-list">
                     <!-- Active prestige bonuses will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Research Laboratory Modal -->
+    <div id="researchModal" class="modal" style="display: none;">
+        <div class="modal-background" onclick="closeModal('researchModal')"></div>
+        <div class="modal-content research-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-flask"></i> Research Laboratory</h2>
+                <div class="research-resources">
+                    <div class="resource-item">
+                        <i class="fas fa-vial"></i>
+                        <span id="researchPoints">0</span>
+                        <span>RP</span>
+                    </div>
+                    <div class="resource-item">
+                        <i class="fas fa-atom"></i>
+                        <span id="sciencePoints">0</span>
+                        <span>SP</span>
+                    </div>
+                </div>
+                <button class="modal-close" onclick="closeModal('researchModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="research-tabs">
+                <button class="tab-btn active" onclick="showResearchTab('active', this)">
+                    <i class="fas fa-play"></i> Aktive Forschung
+                </button>
+                <button class="tab-btn" onclick="showResearchTab('available', this)">
+                    <i class="fas fa-search"></i> Verfügbare Projekte
+                </button>
+                <button class="tab-btn" onclick="showResearchTab('completed', this)">
+                    <i class="fas fa-check"></i> Abgeschlossen
+                </button>
+            </div>
+            
+            <div id="researchActiveTab" class="research-tab active">
+                <div class="active-research-section">
+                    <h3><i class="fas fa-hourglass-half"></i> Laufende Forschung</h3>
+                    <div id="activeResearchList" class="active-research-list">
+                        <div class="no-research">
+                            <i class="fas fa-pause-circle"></i>
+                            <p>Keine aktive Forschung</p>
+                            <p>Wähle ein Projekt aus den verfügbaren Forschungen</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="research-queue">
+                    <h3><i class="fas fa-list-ol"></i> Forschungsqueue</h3>
+                    <div id="researchQueue" class="research-queue-list">
+                        <!-- Research queue items will be populated here -->
+                    </div>
+                </div>
+            </div>
+            
+            <div id="researchAvailableTab" class="research-tab">
+                <div class="research-categories">
+                    <div class="category-section">
+                        <h3><i class="fas fa-chess-rook"></i> Tower Technologien</h3>
+                        <div id="towerResearchList" class="research-project-list">
+                            <!-- Tower research projects will be populated here -->
+                        </div>
+                    </div>
+                    
+                    <div class="category-section">
+                        <h3><i class="fas fa-shield-alt"></i> Verteidigungstechnologien</h3>
+                        <div id="defenseResearchList" class="research-project-list">
+                            <!-- Defense research projects will be populated here -->
+                        </div>
+                    </div>
+                    
+                    <div class="category-section">
+                        <h3><i class="fas fa-cogs"></i> Erweiterte Systeme</h3>
+                        <div id="advancedResearchList" class="research-project-list">
+                            <!-- Advanced research projects will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="researchCompletedTab" class="research-tab">
+                <div id="completedResearchList" class="completed-research-list">
+                    <!-- Completed research will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Base Building & Decoration Modal -->
+    <div id="baseBuilderModal" class="modal" style="display: none;">
+        <div class="modal-background" onclick="closeModal('baseBuilderModal')"></div>
+        <div class="modal-content base-builder-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-home"></i> Basis Designer</h2>
+                <div class="base-resources">
+                    <div class="resource-item">
+                        <i class="fas fa-hammer"></i>
+                        <span id="buildingMaterials">0</span>
+                        <span>BM</span>
+                    </div>
+                    <div class="resource-item">
+                        <i class="fas fa-gem"></i>
+                        <span id="decorationPoints">0</span>
+                        <span>DP</span>
+                    </div>
+                </div>
+                <button class="modal-close" onclick="closeModal('baseBuilderModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="base-builder-tabs">
+                <button class="tab-btn active" onclick="showBaseTab('builder', this)">
+                    <i class="fas fa-edit"></i> Designer
+                </button>
+                <button class="tab-btn" onclick="showBaseTab('decorations', this)">
+                    <i class="fas fa-palette"></i> Dekorationen
+                </button>
+                <button class="tab-btn" onclick="showBaseTab('gallery', this)">
+                    <i class="fas fa-images"></i> Galerie
+                </button>
+            </div>
+            
+            <div id="baseBuilderTab" class="base-tab active">
+                <div class="base-builder-container">
+                    <div class="base-canvas-container">
+                        <canvas id="baseCanvas" width="600" height="400"></canvas>
+                        <div class="base-controls">
+                            <button class="control-btn" id="selectTool" title="Auswählen">
+                                <i class="fas fa-mouse-pointer"></i>
+                            </button>
+                            <button class="control-btn" id="moveTool" title="Verschieben">
+                                <i class="fas fa-arrows-alt"></i>
+                            </button>
+                            <button class="control-btn" id="deleteTool" title="Löschen">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            <button class="control-btn" id="resetBase" title="Zurücksetzen">
+                                <i class="fas fa-undo"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="building-palette">
+                        <h4><i class="fas fa-building"></i> Gebäude</h4>
+                        <div class="building-grid" id="buildingGrid">
+                            <!-- Building options will be populated here -->
+                        </div>
+                        
+                        <h4><i class="fas fa-tree"></i> Dekorationen</h4>
+                        <div class="decoration-grid" id="decorationGrid">
+                            <!-- Decoration options will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="baseDecorationsTab" class="base-tab">
+                <div class="decoration-shop">
+                    <div class="shop-categories">
+                        <button class="category-btn active" onclick="showDecorationCategory('nature')">
+                            <i class="fas fa-leaf"></i> Natur
+                        </button>
+                        <button class="category-btn" onclick="showDecorationCategory('structures')">
+                            <i class="fas fa-monument"></i> Strukturen
+                        </button>
+                        <button class="category-btn" onclick="showDecorationCategory('special')">
+                            <i class="fas fa-star"></i> Speziell
+                        </button>
+                    </div>
+                    
+                    <div class="decoration-catalog" id="decorationCatalog">
+                        <!-- Decoration items will be populated here -->
+                    </div>
+                </div>
+            </div>
+            
+            <div id="baseGalleryTab" class="base-tab">
+                <div class="base-gallery">
+                    <div class="gallery-controls">
+                        <button class="gallery-btn" onclick="saveCurrentBase()">
+                            <i class="fas fa-save"></i> Basis speichern
+                        </button>
+                        <button class="gallery-btn" onclick="shareBase()">
+                            <i class="fas fa-share"></i> Teilen
+                        </button>
+                        <button class="gallery-btn" onclick="loadCommunityBases()">
+                            <i class="fas fa-download"></i> Community Basen
+                        </button>
+                    </div>
+                    
+                    <div class="saved-bases-grid" id="savedBasesGrid">
+                        <!-- Saved bases will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sandbox Mode Modal -->
+    <div id="sandboxModal" class="modal" style="display: none;">
+        <div class="modal-background" onclick="closeModal('sandboxModal')"></div>
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h2><i class="fas fa-cube"></i> Sandbox Modus</h2>
+                <button class="modal-close" onclick="closeModal('sandboxModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="sandbox-content">
+                <div class="sandbox-description">
+                    <div class="sandbox-feature">
+                        <i class="fas fa-infinity"></i>
+                        <h3>Unendliche Ressourcen</h3>
+                        <p>Starte mit 999,999 Gold und unendlichen Leben</p>
+                    </div>
+                    <div class="sandbox-feature">
+                        <i class="fas fa-sliders-h"></i>
+                        <h3>Freie Anpassungen</h3>
+                        <p>Ändere Spielgeschwindigkeit, Feind-Stärke und mehr</p>
+                    </div>
+                    <div class="sandbox-feature">
+                        <i class="fas fa-magic"></i>
+                        <h3>Alle Upgrades</h3>
+                        <p>Zugang zu allen Türmen und Fähigkeiten</p>
+                    </div>
+                </div>
+                
+                <div class="sandbox-settings">
+                    <h3><i class="fas fa-cog"></i> Sandbox Einstellungen</h3>
+                    
+                    <div class="settings-grid">
+                        <div class="setting-item">
+                            <label for="sandboxGold">Startgold:</label>
+                            <input type="number" id="sandboxGold" value="999999" min="0" max="9999999">
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label for="sandboxLives">Leben:</label>
+                            <input type="number" id="sandboxLives" value="999" min="1" max="9999">
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label for="sandboxGameSpeed">Spielgeschwindigkeit:</label>
+                            <select id="sandboxGameSpeed">
+                                <option value="0.5">0.5x (Langsam)</option>
+                                <option value="1" selected>1x (Normal)</option>
+                                <option value="2">2x (Schnell)</option>
+                                <option value="5">5x (Sehr schnell)</option>
+                                <option value="10">10x (Extrem)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label for="sandboxEnemyHealth">Feind-Lebenspunkte:</label>
+                            <select id="sandboxEnemyHealth">
+                                <option value="0.1">10% (Schwach)</option>
+                                <option value="0.5">50% (Leicht)</option>
+                                <option value="1" selected>100% (Normal)</option>
+                                <option value="2">200% (Stark)</option>
+                                <option value="5">500% (Extrem)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label for="sandboxWaveSize">Wellen-Größe:</label>
+                            <select id="sandboxWaveSize">
+                                <option value="0.5">50% (Klein)</option>
+                                <option value="1" selected>100% (Normal)</option>
+                                <option value="2">200% (Groß)</option>
+                                <option value="5">500% (Riesig)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item checkbox-item">
+                            <input type="checkbox" id="sandboxUnlockAll" checked>
+                            <label for="sandboxUnlockAll">Alle Türme & Upgrades freigeschaltet</label>
+                        </div>
+                        
+                        <div class="setting-item checkbox-item">
+                            <input type="checkbox" id="sandboxInfiniteLives" checked>
+                            <label for="sandboxInfiniteLives">Unendliche Leben</label>
+                        </div>
+                        
+                        <div class="setting-item checkbox-item">
+                            <input type="checkbox" id="sandboxAutoWave">
+                            <label for="sandboxAutoWave">Auto-Wave aktiviert</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="sandbox-actions">
+                    <button class="menu-btn primary large" onclick="startSandboxGame()">
+                        <i class="fas fa-play"></i>
+                        Sandbox Starten
+                    </button>
+                    <button class="menu-btn secondary" onclick="resetSandboxSettings()">
+                        <i class="fas fa-undo"></i>
+                        Einstellungen Zurücksetzen
+                    </button>
                 </div>
             </div>
         </div>

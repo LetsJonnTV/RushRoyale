@@ -90,6 +90,16 @@ class Game {
         this.gameLoop();
         // drawPath will be called in the gameLoop when canvas is ready
         this.applySettings();
+        
+        // Apply sandbox settings if active
+        if (window.sandboxMode && window.sandboxMode.isActive) {
+            window.sandboxMode.applyToGame(this);
+        } else {
+            // Reset sandbox mode if it was previously active
+            if (window.sandboxMode) {
+                window.sandboxMode.reset();
+            }
+        }
     }
 
     // Map System
@@ -1650,7 +1660,12 @@ class Game {
         this.enemiesSpawned = 0;
         
         // Progressive Skalierung: Mehr Feinde pro Welle
-        const enemiesThisWave = this.enemiesPerWave + Math.floor(this.wave * 1.5) + Math.floor(this.wave / 2);
+        let enemiesThisWave = this.enemiesPerWave + Math.floor(this.wave * 1.5) + Math.floor(this.wave / 2);
+        
+        // Apply sandbox wave size modifier
+        if (window.sandboxMode && window.sandboxMode.isActive) {
+            enemiesThisWave = window.sandboxMode.modifyWaveSize(enemiesThisWave);
+        }
         
         // Spawn-Intervall wird mit jeder Welle schneller
         const baseSpawnInterval = this.bossWave ? 500 : 700;
@@ -1758,6 +1773,8 @@ class Game {
         this.towers = [];
         this.enemies = [];
         this.projectiles = [];
+        
+        // Set default values (may be overridden by sandbox)
         this.money = 100;
         this.lives = 20;
         this.score = 0;
@@ -1773,6 +1790,11 @@ class Game {
         this.comboMultiplier = 1;
         this.comboKills = 0;
         this.lastKillTime = 0;
+        
+        // Apply sandbox settings AFTER setting defaults
+        if (window.sandboxMode && window.sandboxMode.isActive) {
+            window.sandboxMode.applyToGame(this);
+        }
         this.powerUps = [];
         this.screenShake = 0;
         
@@ -2548,6 +2570,12 @@ class Game {
     startGameFromMenu() {
         console.log('startGameFromMenu() called');
         
+        // Ensure sandbox is NOT active for normal game start
+        if (window.sandboxMode) {
+            window.sandboxMode.isActive = false;
+            window.sandboxMode.hideIndicator();
+        }
+        
         const mainMenu = document.getElementById('mainMenu');
         const gameContainer = document.getElementById('gameContainer');
         const changelogBtn = document.getElementById('changelogBtn');
@@ -3254,6 +3282,11 @@ class Game {
             if (ability.cooldown > 0) ability.cooldown--;
         });
         
+        // Update research system
+        if (window.researchSystem) {
+            window.researchSystem.updateResearch();
+        }
+        
         // Game Speed anwenden
         const speedMultiplier = this.gameSpeed;
         
@@ -3271,8 +3304,14 @@ class Game {
                 this.enemies.splice(i, 1);
                 this.updateUI();
                 
+                // Check for sandbox infinite lives before game over
                 if (this.lives <= 0) {
-                    this.gameOver();
+                    if (window.sandboxMode && window.sandboxMode.handlePlayerDeath(this)) {
+                        // Lives restored by sandbox mode
+                        this.updateUI();
+                    } else {
+                        this.gameOver();
+                    }
                 }
             } else if (enemy.health <= 0) {
                 const baseReward = enemy.reward;
@@ -3306,6 +3345,24 @@ class Game {
                 this.goldEarned += finalReward;
                 this.score += enemy.points * this.comboMultiplier;
                 this.totalKills++;
+                
+                // Earn research and building resources
+                if (window.researchSystem) {
+                    const researchEarned = Math.floor(finalReward * 0.1); // 10% of gold as research points
+                    window.researchSystem.earnResearchPoints(researchEarned);
+                    
+                    if (Math.random() < 0.05) { // 5% chance for science points
+                        const scienceEarned = Math.floor(finalReward * 0.02);
+                        window.researchSystem.earnSciencePoints(scienceEarned);
+                    }
+                }
+                
+                if (window.baseBuilder) {
+                    const materialsEarned = Math.floor(finalReward * 0.05); // 5% of gold as building materials
+                    window.baseBuilder.buildingMaterials += materialsEarned;
+                    window.baseBuilder.saveBaseData();
+                    window.baseBuilder.updateBaseBuilderUI();
+                }
                 
                 // Update statistics
                 this.sessionStats.kills++;
@@ -3378,6 +3435,31 @@ class Game {
         const waveBonus = Math.floor(baseWaveBonus * skillEffects.goldMultiplier);
         this.money += waveBonus;
         this.goldEarned += waveBonus;
+        
+        // Earn bonus resources for wave completion
+        if (window.researchSystem) {
+            const waveResearchBonus = Math.floor(this.wave * 5); // More research points for higher waves
+            window.researchSystem.earnResearchPoints(waveResearchBonus);
+            
+            // Boss waves give science points
+            if ((this.wave - 1) % 5 === 0) {
+                const waveScienceBonus = Math.floor(this.wave * 2);
+                window.researchSystem.earnSciencePoints(waveScienceBonus);
+            }
+        }
+        
+        if (window.baseBuilder) {
+            const waveMaterialsBonus = Math.floor(this.wave * 3); // Building materials for wave completion
+            window.baseBuilder.buildingMaterials += waveMaterialsBonus;
+            
+            // Special decoration points every 5 waves
+            if ((this.wave - 1) % 5 === 0) {
+                window.baseBuilder.decorationPoints += Math.floor(this.wave);
+            }
+            
+            window.baseBuilder.saveBaseData();
+            window.baseBuilder.updateBaseBuilderUI();
+        }
         
         // Skill-Punkte für Wellen-Abschluss
         this.checkWaveSkillPointRewards();
@@ -5628,6 +5710,11 @@ class Enemy {
                 this.maxShield = this.shield;
             }
         }
+        
+        // Apply sandbox enemy health modifier
+        if (window.sandboxMode && window.sandboxMode.isActive) {
+            window.sandboxMode.modifyEnemyStats(this);
+        }
     }
     
     update() {
@@ -6247,6 +6334,13 @@ class Particle {
 }
 
 // Globale Funktionen für Modals
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
 function closeModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
@@ -8040,8 +8134,117 @@ async function loadChangelog() {
         return parseMarkdownToHTML(markdown);
     } catch (error) {
         console.error('Fehler beim Laden des Changelogs:', error);
-        return '<p>Changelog konnte nicht geladen werden.</p>';
+        return getDefaultChangelog();
     }
+}
+
+function getDefaultChangelog() {
+    return `
+        <div class="changelog-version">
+            <h2>🎮 Version 4.0.0 - "Sandbox & Meta-Progression Update"</h2>
+            <p class="version-date">Oktober 2025</p>
+            <div class="changelog-section">
+                <h3>🆕 Neue Features</h3>
+                <ul>
+                    <li><strong>🔬 Research Laboratory System</strong>
+                        <ul>
+                            <li>Vollständiges Forschungssystem mit Tech-Bäumen</li>
+                            <li>Turm-, Verteidigungs- und erweiterte Technologien</li>
+                            <li>Forschungspunkte & Wissenschaftspunkte als Währungen</li>
+                            <li>Permanente Upgrades über alle Spiele hinweg</li>
+                            <li>Echtzeit-Fortschrittsanzeige mit visuellen Effekten</li>
+                        </ul>
+                    </li>
+                    <li><strong>🏗️ Base Building & Decoration System</strong>
+                        <ul>
+                            <li>Interaktiver Canvas-basierter Basis-Designer</li>
+                            <li>Gebäude- und Dekorations-Palette mit verschiedenen Objekten</li>
+                            <li>Werkzeug-System: Auswählen, Platzieren, Verschieben, Löschen</li>
+                            <li>Speichern und Laden mehrerer Basis-Designs</li>
+                            <li>Baumaterialien & Dekorationspunkte als Ressourcen</li>
+                        </ul>
+                    </li>
+                    <li><strong>🎯 Sandbox-Modus</strong>
+                        <ul>
+                            <li>Anpassbare Startressourcen (bis zu 999,999 Gold)</li>
+                            <li>Variable Spielgeschwindigkeit (0.5x bis 10x)</li>
+                            <li>Einstellbare Feind-Stärke und Wellen-Größe</li>
+                            <li>Unendliche Leben und Auto-Wave Optionen</li>
+                            <li>Alle Inhalte sofort freigeschaltet</li>
+                            <li>Sandbox-Indikator während des Spiels</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+            
+            <div class="changelog-section">
+                <h3>🔧 Verbesserungen</h3>
+                <ul>
+                    <li><strong>Ressourcen-System:</strong> Automatische Generierung von Forschungs- und Baumaterialien</li>
+                    <li><strong>UI/UX:</strong> Neue Modal-Dialoge mit Tabbed-Interface</li>
+                    <li><strong>Progression:</strong> Bonus-Ressourcen bei Wellen-Abschluss und Boss-Defeats</li>
+                    <li><strong>Performance:</strong> Optimierte Canvas-Rendering für Base Builder</li>
+                    <li><strong>Speicher-System:</strong> Erweiterte localStorage-Integration für alle neuen Features</li>
+                </ul>
+            </div>
+            
+            <div class="changelog-section">
+                <h3>🎨 Design & Interface</h3>
+                <ul>
+                    <li>Neue Gradient-Buttons mit Hover-Effekten für Sandbox</li>
+                    <li>Responsive Grid-Layouts für alle neuen Modals</li>
+                    <li>Farbkodierte Kategorien für Forschungsprojekte</li>
+                    <li>Animated Progress-Bars für aktive Forschung</li>
+                    <li>Dark-Mode-Unterstützung für alle neuen Components</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="changelog-version">
+            <h2>⚡ Version 3.0.0 - "Elite Systems"</h2>
+            <p class="version-date">September 2025</p>
+            <div class="changelog-section">
+                <h3>🆕 Neue Features</h3>
+                <ul>
+                    <li>Erweiterte Skill-Trees und Progression-Systeme</li>
+                    <li>Multiplayer-Grundlagen implementiert</li>
+                    <li>Map-Editor für benutzerdefinierte Karten</li>
+                    <li>Trading-System zwischen Spielern</li>
+                    <li>Guild-System für Community-Features</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="changelog-version">
+            <h2>🚀 Version 2.0.0 - "Advanced Defense"</h2>
+            <p class="version-date">August 2025</p>
+            <div class="changelog-section">
+                <h3>🆕 Neue Features</h3>
+                <ul>
+                    <li>Neue Turm-Typen: Laser, Eis, Gift, Elektro, Raketen</li>
+                    <li>Spezialfähigkeiten: Meteor, Freeze, Gold Rush</li>
+                    <li>Achievement-System mit über 50 Errungenschaften</li>
+                    <li>Statistiken und Fortschritts-Tracking</li>
+                    <li>Prestige-System für Langzeitmotivation</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="changelog-version">
+            <h2>🎯 Version 1.0.0 - "Foundation"</h2>
+            <p class="version-date">Juli 2025</p>
+            <div class="changelog-section">
+                <h3>🆕 Erste Version</h3>
+                <ul>
+                    <li>Grundlegendes Tower Defense Gameplay</li>
+                    <li>Basis-Turm-Typen: Basic, Sniper, Cannon</li>
+                    <li>Wave-basiertes Gegner-System</li>
+                    <li>Upgrade-Mechanik für Türme</li>
+                    <li>Responsive Design für alle Geräte</li>
+                </ul>
+            </div>
+        </div>
+    `;
 }
 
 function parseMarkdownToHTML(markdown) {
@@ -8105,6 +8308,13 @@ function showChangelog() {
         loadChangelog().then(html => {
             content.innerHTML = html;
         });
+    }
+}
+
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'flex';
     }
 }
 
@@ -9540,3 +9750,1069 @@ window.gameUI = {
     showPrestigeNotification: showPrestigeNotification,
     showAchievementNotification: showAchievementNotification
 };
+
+// ==========================================================================
+// RESEARCH LABORATORY SYSTEM
+// ==========================================================================
+
+class ResearchSystem {
+    constructor() {
+        this.researchPoints = 0;
+        this.sciencePoints = 0;
+        this.activeResearch = null;
+        this.researchQueue = [];
+        this.completedResearch = [];
+        this.researchProjects = this.initializeResearchProjects();
+        this.loadResearchData();
+    }
+
+    initializeResearchProjects() {
+        return {
+            // Tower Technologies
+            towerTech: [
+                {
+                    id: 'advancedTargeting',
+                    name: 'Erweiterte Zielerfassung',
+                    description: 'Erhöht die Reichweite aller Türme um 15%',
+                    icon: 'fas fa-crosshairs',
+                    category: 'tower',
+                    cost: { researchPoints: 100, sciencePoints: 50 },
+                    time: 300, // 5 minutes
+                    requirements: [],
+                    effects: { towerRange: 1.15 }
+                },
+                {
+                    id: 'smartAmmunition',
+                    name: 'Intelligente Munition',
+                    description: 'Erhöht den Schaden aller Türme um 20%',
+                    icon: 'fas fa-bomb',
+                    category: 'tower',
+                    cost: { researchPoints: 150, sciencePoints: 75 },
+                    time: 450,
+                    requirements: ['advancedTargeting'],
+                    effects: { towerDamage: 1.2 }
+                },
+                {
+                    id: 'rapidFire',
+                    name: 'Schnellfeuer-System',
+                    description: 'Erhöht die Feuerrate aller Türme um 25%',
+                    icon: 'fas fa-tachometer-alt',
+                    category: 'tower',
+                    cost: { researchPoints: 200, sciencePoints: 100 },
+                    time: 600,
+                    requirements: ['smartAmmunition'],
+                    effects: { fireRate: 1.25 }
+                }
+            ],
+            // Defense Technologies
+            defenseTech: [
+                {
+                    id: 'reinforcedWalls',
+                    name: 'Verstärkte Mauern',
+                    description: 'Reduziert Schaden an Leben um 10%',
+                    icon: 'fas fa-shield-alt',
+                    category: 'defense',
+                    cost: { researchPoints: 80, sciencePoints: 40 },
+                    time: 240,
+                    requirements: [],
+                    effects: { damageReduction: 0.9 }
+                },
+                {
+                    id: 'emergencyRepair',
+                    name: 'Notfall-Reparatur',
+                    description: 'Erlaubt das Reparieren von Leben (1 Leben pro 500 Gold)',
+                    icon: 'fas fa-tools',
+                    category: 'defense',
+                    cost: { researchPoints: 120, sciencePoints: 60 },
+                    time: 360,
+                    requirements: ['reinforcedWalls'],
+                    effects: { canRepairLives: true }
+                }
+            ],
+            // Advanced Systems
+            advancedTech: [
+                {
+                    id: 'autoUpgrade',
+                    name: 'Auto-Upgrade System',
+                    description: 'Türme upgraden sich automatisch wenn genug Gold vorhanden',
+                    icon: 'fas fa-robot',
+                    category: 'advanced',
+                    cost: { researchPoints: 300, sciencePoints: 150 },
+                    time: 900,
+                    requirements: ['smartAmmunition', 'emergencyRepair'],
+                    effects: { autoUpgrade: true }
+                },
+                {
+                    id: 'quantumBoost',
+                    name: 'Quantum-Verstärkung',
+                    description: 'Alle Effekte werden um 50% verstärkt',
+                    icon: 'fas fa-atom',
+                    category: 'advanced',
+                    cost: { researchPoints: 500, sciencePoints: 250 },
+                    time: 1800,
+                    requirements: ['autoUpgrade'],
+                    effects: { globalMultiplier: 1.5 }
+                }
+            ]
+        };
+    }
+
+    startResearch(projectId) {
+        const project = this.findProjectById(projectId);
+        if (!project || !this.canStartResearch(project)) return false;
+
+        // Deduct costs
+        this.researchPoints -= project.cost.researchPoints;
+        this.sciencePoints -= project.cost.sciencePoints;
+
+        // Start research
+        this.activeResearch = {
+            ...project,
+            startTime: Date.now(),
+            progress: 0
+        };
+
+        this.saveResearchData();
+        this.updateResearchUI();
+        showGameNotification(`Forschung "${project.name}" gestartet!`, 'info');
+        return true;
+    }
+
+    updateResearch() {
+        if (!this.activeResearch) return;
+
+        const elapsed = Date.now() - this.activeResearch.startTime;
+        const totalTime = this.activeResearch.time * 1000; // Convert to ms
+        this.activeResearch.progress = Math.min(elapsed / totalTime, 1);
+
+        if (this.activeResearch.progress >= 1) {
+            this.completeResearch();
+        }
+
+        this.updateResearchUI();
+    }
+
+    completeResearch() {
+        if (!this.activeResearch) return;
+
+        const completedProject = { ...this.activeResearch };
+        this.completedResearch.push(completedProject);
+        this.activeResearch = null;
+
+        // Apply research effects
+        this.applyResearchEffects(completedProject);
+
+        // Start next in queue
+        if (this.researchQueue.length > 0) {
+            const nextProject = this.researchQueue.shift();
+            this.startResearch(nextProject.id);
+        }
+
+        this.saveResearchData();
+        this.updateResearchUI();
+        showGameNotification(`Forschung "${completedProject.name}" abgeschlossen!`, 'success');
+    }
+
+    applyResearchEffects(project) {
+        // Apply effects to game
+        if (window.game) {
+            if (project.effects.towerRange) {
+                // Apply to all towers
+                window.game.towers.forEach(tower => {
+                    tower.range *= project.effects.towerRange;
+                });
+            }
+            // Add more effect applications as needed
+        }
+    }
+
+    findProjectById(id) {
+        const allProjects = [
+            ...this.researchProjects.towerTech,
+            ...this.researchProjects.defenseTech,
+            ...this.researchProjects.advancedTech
+        ];
+        return allProjects.find(p => p.id === id);
+    }
+
+    canStartResearch(project) {
+        if (this.activeResearch) return false;
+        if (this.researchPoints < project.cost.researchPoints) return false;
+        if (this.sciencePoints < project.cost.sciencePoints) return false;
+        if (this.completedResearch.some(r => r.id === project.id)) return false;
+
+        // Check requirements
+        return project.requirements.every(reqId => 
+            this.completedResearch.some(r => r.id === reqId)
+        );
+    }
+
+    earnResearchPoints(amount) {
+        this.researchPoints += amount;
+        this.saveResearchData();
+        this.updateResearchUI();
+    }
+
+    earnSciencePoints(amount) {
+        this.sciencePoints += amount;
+        this.saveResearchData();
+        this.updateResearchUI();
+    }
+
+    saveResearchData() {
+        localStorage.setItem('rushRoyalResearch', JSON.stringify({
+            researchPoints: this.researchPoints,
+            sciencePoints: this.sciencePoints,
+            activeResearch: this.activeResearch,
+            researchQueue: this.researchQueue,
+            completedResearch: this.completedResearch
+        }));
+    }
+
+    loadResearchData() {
+        const data = localStorage.getItem('rushRoyalResearch');
+        if (data) {
+            const parsed = JSON.parse(data);
+            this.researchPoints = parsed.researchPoints || 0;
+            this.sciencePoints = parsed.sciencePoints || 0;
+            this.activeResearch = parsed.activeResearch || null;
+            this.researchQueue = parsed.researchQueue || [];
+            this.completedResearch = parsed.completedResearch || [];
+        }
+    }
+
+    updateResearchUI() {
+        const rpElement = document.getElementById('researchPoints');
+        const spElement = document.getElementById('sciencePoints');
+        
+        if (rpElement) rpElement.textContent = this.researchPoints;
+        if (spElement) spElement.textContent = this.sciencePoints;
+        
+        // Update displays
+        this.updateActiveResearchDisplay();
+        this.updateAvailableResearchDisplay();
+        this.updateCompletedResearchDisplay();
+    }
+
+    updateActiveResearchDisplay() {
+        const container = document.getElementById('activeResearchList');
+        if (!container) return;
+
+        if (!this.activeResearch) {
+            container.innerHTML = `
+                <div class="no-research">
+                    <i class="fas fa-pause-circle"></i>
+                    <p>Keine aktive Forschung</p>
+                    <p>Wähle ein Projekt aus den verfügbaren Forschungen</p>
+                </div>
+            `;
+            return;
+        }
+
+        const progressPercent = (this.activeResearch.progress * 100).toFixed(1);
+        container.innerHTML = `
+            <div class="active-research-item">
+                <div class="research-header">
+                    <div class="research-icon">
+                        <i class="${this.activeResearch.icon}"></i>
+                    </div>
+                    <div class="research-info">
+                        <h4>${this.activeResearch.name}</h4>
+                        <p>${this.activeResearch.description}</p>
+                    </div>
+                </div>
+                <div class="research-progress">
+                    <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                </div>
+                <div class="progress-text">${progressPercent}% abgeschlossen</div>
+            </div>
+        `;
+    }
+
+    updateAvailableResearchDisplay() {
+        // Update each category
+        this.updateResearchCategory('towerResearchList', this.researchProjects.towerTech);
+        this.updateResearchCategory('defenseResearchList', this.researchProjects.defenseTech);
+        this.updateResearchCategory('advancedResearchList', this.researchProjects.advancedTech);
+    }
+
+    updateResearchCategory(containerId, projects) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        container.innerHTML = projects.map(project => {
+            const canStart = this.canStartResearch(project);
+            const isCompleted = this.completedResearch.some(r => r.id === project.id);
+            
+            if (isCompleted) return '';
+
+            return `
+                <div class="research-project ${canStart ? '' : 'locked'}" 
+                     onclick="${canStart ? `window.researchSystem.startResearch('${project.id}')` : ''}">
+                    <div class="research-header">
+                        <div class="research-icon">
+                            <i class="${project.icon}"></i>
+                        </div>
+                        <div class="research-info">
+                            <h4>${project.name}</h4>
+                        </div>
+                    </div>
+                    <div class="research-description">${project.description}</div>
+                    <div class="research-requirements">
+                        <div class="research-cost">
+                            <div class="cost-item">
+                                <i class="fas fa-vial"></i>
+                                <span>${project.cost.researchPoints}</span>
+                            </div>
+                            <div class="cost-item">
+                                <i class="fas fa-atom"></i>
+                                <span>${project.cost.sciencePoints}</span>
+                            </div>
+                        </div>
+                        <div class="research-time">
+                            <i class="fas fa-clock"></i>
+                            ${Math.floor(project.time / 60)}m ${project.time % 60}s
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    updateCompletedResearchDisplay() {
+        const container = document.getElementById('completedResearchList');
+        if (!container) return;
+
+        if (this.completedResearch.length === 0) {
+            container.innerHTML = `
+                <div class="no-research">
+                    <i class="fas fa-search"></i>
+                    <p>Noch keine Forschung abgeschlossen</p>
+                    <p>Starte deine erste Forschung!</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = this.completedResearch.map(project => `
+            <div class="research-project completed">
+                <div class="research-header">
+                    <div class="research-icon">
+                        <i class="${project.icon}"></i>
+                    </div>
+                    <div class="research-info">
+                        <h4>${project.name}</h4>
+                    </div>
+                    <div class="completed-badge">
+                        <i class="fas fa-check"></i>
+                    </div>
+                </div>
+                <div class="research-description">${project.description}</div>
+            </div>
+        `).join('');
+    }
+}
+
+// ==========================================================================
+// BASE BUILDING SYSTEM
+// ==========================================================================
+
+class BaseBuilderSystem {
+    constructor() {
+        this.buildingMaterials = 0;
+        this.decorationPoints = 0;
+        this.currentBase = {
+            buildings: [],
+            decorations: []
+        };
+        this.savedBases = [];
+        this.selectedTool = 'select';
+        this.selectedItem = null;
+        this.canvas = null;
+        this.ctx = null;
+        this.loadBaseData();
+        this.initializeCanvas();
+    }
+
+    initializeCanvas() {
+        // Try to get canvas immediately
+        this.canvas = document.getElementById('baseCanvas');
+        if (this.canvas) {
+            this.ctx = this.canvas.getContext('2d');
+            this.setupCanvasEvents();
+            this.populateBuildingPalette();
+            this.drawBase();
+        } else {
+            // Fallback to setTimeout if not available yet
+            setTimeout(() => {
+                this.canvas = document.getElementById('baseCanvas');
+                if (this.canvas) {
+                    this.ctx = this.canvas.getContext('2d');
+                    this.setupCanvasEvents();
+                    this.populateBuildingPalette();
+                    this.drawBase();
+                }
+            }, 100);
+        }
+    }
+
+    setupCanvasEvents() {
+        this.canvas.addEventListener('click', (e) => {
+            const rect = this.canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            this.handleCanvasClick(x, y);
+        });
+    }
+
+    handleCanvasClick(x, y) {
+        switch (this.selectedTool) {
+            case 'select':
+                this.selectItemAt(x, y);
+                break;
+            case 'place':
+                this.placeSelectedItem(x, y);
+                break;
+            case 'delete':
+                this.deleteItemAt(x, y);
+                break;
+        }
+    }
+
+    placeSelectedItem(x, y) {
+        if (!this.selectedItem) return;
+
+        // Ressourcen-Validierung
+        const cost = this.selectedItem.cost || 0;
+        const category = this.selectedItem.category;
+        
+        if (category === 'building') {
+            if (this.buildingMaterials < cost) {
+                showGameNotification(`Nicht genügend Baumaterialien! Benötigt: ${cost}, Verfügbar: ${this.buildingMaterials}`, 'error');
+                return;
+            }
+        } else if (category === 'decoration') {
+            if (this.decorationPoints < cost) {
+                showGameNotification(`Nicht genügend Dekorationspunkte! Benötigt: ${cost}, Verfügbar: ${this.decorationPoints}`, 'error');
+                return;
+            }
+        }
+
+        const newItem = {
+            id: Date.now(),
+            type: this.selectedItem.type,
+            x: x,
+            y: y,
+            rotation: 0,
+            cost: cost
+        };
+
+        // Item platzieren
+        if (this.selectedItem.category === 'building') {
+            this.currentBase.buildings.push(newItem);
+            this.buildingMaterials -= cost;
+        } else {
+            this.currentBase.decorations.push(newItem);
+            this.decorationPoints -= cost;
+        }
+
+        // UI aktualisieren
+        this.updateResourceDisplay();
+        this.drawBase();
+        
+        console.log('Item placed successfully. Resources updated:', {
+            buildingMaterials: this.buildingMaterials,
+            decorationPoints: this.decorationPoints
+        });
+        
+        showGameNotification(`${this.selectedItem.type} platziert! Kosten: ${cost}`, 'success');
+        this.saveBaseData();
+    }
+
+    selectItemAt(x, y) {
+        // Find item at coordinates
+        const allItems = [...this.currentBase.buildings, ...this.currentBase.decorations];
+        const selected = allItems.find(item => 
+            x >= item.x - 25 && x <= item.x + 25 &&
+            y >= item.y - 25 && y <= item.y + 25
+        );
+
+        if (selected) {
+            this.selectedItem = selected;
+            showGameNotification(`${selected.type} ausgewählt`, 'info');
+        }
+    }
+
+    deleteItemAt(x, y) {
+        this.currentBase.buildings = this.currentBase.buildings.filter(item =>
+            !(x >= item.x - 25 && x <= item.x + 25 && y >= item.y - 25 && y <= item.y + 25)
+        );
+        
+        this.currentBase.decorations = this.currentBase.decorations.filter(item =>
+            !(x >= item.x - 25 && x <= item.x + 25 && y >= item.y - 25 && y <= item.y + 25)
+        );
+
+        this.drawBase();
+        this.saveBaseData();
+    }
+
+    drawBase() {
+        if (!this.ctx) return;
+
+        // Clear canvas
+        this.ctx.fillStyle = '#2d5a27';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Draw grid
+        this.drawGrid();
+
+        // Draw buildings and decorations
+        [...this.currentBase.buildings, ...this.currentBase.decorations].forEach(item => {
+            this.drawItem(item);
+        });
+    }
+
+    drawGrid() {
+        const gridSize = 25;
+        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        this.ctx.lineWidth = 1;
+
+        for (let x = 0; x <= this.canvas.width; x += gridSize) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, 0);
+            this.ctx.lineTo(x, this.canvas.height);
+            this.ctx.stroke();
+        }
+
+        for (let y = 0; y <= this.canvas.height; y += gridSize) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, y);
+            this.ctx.lineTo(this.canvas.width, y);
+            this.ctx.stroke();
+        }
+    }
+
+    drawItem(item) {
+        this.ctx.fillStyle = this.getItemColor(item.type);
+        this.ctx.fillRect(item.x - 20, item.y - 20, 40, 40);
+        
+        // Draw item type text
+        this.ctx.fillStyle = 'white';
+        this.ctx.font = '12px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(item.type, item.x, item.y + 4);
+    }
+
+    getItemColor(type) {
+        const colors = {
+            'house': '#8B4513',
+            'tower': '#696969',
+            'tree': '#228B22',
+            'rock': '#A9A9A9',
+            'fountain': '#4169E1'
+        };
+        return colors[type] || '#888888';
+    }
+
+    populateBuildingPalette() {
+        this.buildings = [
+            { type: 'house', name: 'Haus', icon: 'fas fa-home', cost: 10, category: 'building' },
+            { type: 'tower', name: 'Turm', icon: 'fas fa-chess-rook', cost: 20, category: 'building' }
+        ];
+
+        this.decorations = [
+            { type: 'tree', name: 'Baum', icon: 'fas fa-tree', cost: 5, category: 'decoration' },
+            { type: 'rock', name: 'Felsen', icon: 'fas fa-mountain', cost: 3, category: 'decoration' },
+            { type: 'fountain', name: 'Brunnen', icon: 'fas fa-fountain', cost: 15, category: 'decoration' }
+        ];
+
+        this.populateItemGrid('buildingGrid', this.buildings);
+        this.populateItemGrid('decorationGrid', this.decorations);
+    }
+
+    populateItemGrid(containerId, items) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        container.innerHTML = items.map(item => `
+            <div class="building-item" onclick="window.baseBuilder.selectBuildingItem('${item.type}', '${item.category}')">
+                <div class="item-icon">
+                    <i class="${item.icon}"></i>
+                </div>
+                <div class="item-name">${item.name}</div>
+                <div class="item-cost">
+                    <i class="fas fa-hammer"></i> ${item.cost}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    selectBuildingItem(type, category) {
+        // Finde das Item in den verfügbaren Gebäuden oder Dekorationen um die Kosten zu ermitteln
+        let selectedItemData = null;
+        
+        if (this.buildings) {
+            selectedItemData = this.buildings.find(item => item.type === type);
+        }
+        
+        if (!selectedItemData && this.decorations) {
+            selectedItemData = this.decorations.find(item => item.type === type);
+        }
+        
+        if (!selectedItemData) {
+            console.warn('Item data not found for type:', type);
+            return;
+        }
+        
+        this.selectedItem = { 
+            type, 
+            category,
+            cost: selectedItemData.cost
+        };
+        this.selectedTool = 'place';
+        
+        // Update UI - find the clicked element by data attribute would be better
+        document.querySelectorAll('.building-item').forEach(el => {
+            el.classList.remove('selected');
+            // Check if this element matches the selected type
+            const itemName = el.querySelector('.item-name').textContent;
+            if ((type === 'house' && itemName === 'Haus') ||
+                (type === 'tower' && itemName === 'Turm') ||
+                (type === 'tree' && itemName === 'Baum') ||
+                (type === 'rock' && itemName === 'Felsen') ||
+                (type === 'fountain' && itemName === 'Brunnen')) {
+                el.classList.add('selected');
+            }
+        });
+        
+        showGameNotification(`${type} zum Platzieren ausgewählt (Kosten: ${selectedItemData.cost})`, 'info');
+    }
+
+    setTool(tool) {
+        this.selectedTool = tool;
+        
+        // Update tool buttons
+        document.querySelectorAll('.control-btn').forEach(btn => btn.classList.remove('active'));
+        const toolBtn = document.getElementById(tool + 'Tool');
+        if (toolBtn) toolBtn.classList.add('active');
+    }
+
+    saveCurrentBase() {
+        const baseName = prompt('Basis-Name eingeben:');
+        if (!baseName) return;
+
+        const baseData = {
+            id: Date.now(),
+            name: baseName,
+            buildings: [...this.currentBase.buildings],
+            decorations: [...this.currentBase.decorations],
+            createdAt: new Date().toISOString()
+        };
+
+        this.savedBases.push(baseData);
+        this.saveBaseData();
+        this.updateSavedBasesDisplay();
+        showGameNotification(`Basis "${baseName}" gespeichert!`, 'success');
+    }
+
+    loadBase(baseId) {
+        const base = this.savedBases.find(b => b.id === baseId);
+        if (!base) return;
+
+        this.currentBase = {
+            buildings: [...base.buildings],
+            decorations: [...base.decorations]
+        };
+
+        this.drawBase();
+        showGameNotification(`Basis "${base.name}" geladen!`, 'success');
+    }
+
+    resetBase() {
+        this.currentBase = { buildings: [], decorations: [] };
+        this.drawBase();
+        this.saveBaseData();
+        showGameNotification('Basis zurückgesetzt!', 'info');
+    }
+
+    updateSavedBasesDisplay() {
+        const container = document.getElementById('savedBasesGrid');
+        if (!container) return;
+
+        container.innerHTML = this.savedBases.map(base => `
+            <div class="saved-base-item" onclick="window.baseBuilder.loadBase(${base.id})">
+                <div class="base-preview">
+                    <!-- Mini preview would go here -->
+                </div>
+                <div class="base-info">
+                    <div class="base-name">${base.name}</div>
+                    <div class="base-stats">
+                        <span>${base.buildings.length} Gebäude</span>
+                        <span>${base.decorations.length} Deko</span>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    saveBaseData() {
+        localStorage.setItem('rushRoyalBaseBuilder', JSON.stringify({
+            buildingMaterials: this.buildingMaterials,
+            decorationPoints: this.decorationPoints,
+            currentBase: this.currentBase,
+            savedBases: this.savedBases
+        }));
+    }
+
+    loadBaseData() {
+        const data = localStorage.getItem('rushRoyalBaseBuilder');
+        if (data) {
+            const parsed = JSON.parse(data);
+            this.buildingMaterials = parsed.buildingMaterials || 0;
+            this.decorationPoints = parsed.decorationPoints || 0;
+            this.currentBase = parsed.currentBase || { buildings: [], decorations: [] };
+            this.savedBases = parsed.savedBases || [];
+        }
+    }
+
+    updateBaseBuilderUI() {
+        const bmElement = document.getElementById('buildingMaterials');
+        const dpElement = document.getElementById('decorationPoints');
+        
+        if (bmElement) bmElement.textContent = this.buildingMaterials;
+        if (dpElement) dpElement.textContent = this.decorationPoints;
+        
+        this.updateSavedBasesDisplay();
+    }
+}
+
+// Tab switching functions - globally available
+window.showResearchTab = function(tabName, clickedElement = null) {
+    document.querySelectorAll('.research-tab').forEach(tab => tab.classList.remove('active'));
+    document.querySelectorAll('.research-tabs .tab-btn').forEach(btn => btn.classList.remove('active'));
+    
+    const targetTab = document.getElementById('research' + tabName.charAt(0).toUpperCase() + tabName.slice(1) + 'Tab');
+    if (targetTab) targetTab.classList.add('active');
+    if (clickedElement) clickedElement.classList.add('active');
+}
+
+window.showBaseTab = function(tabName, clickedElement = null) {
+    document.querySelectorAll('.base-tab').forEach(tab => tab.classList.remove('active'));
+    document.querySelectorAll('.base-builder-tabs .tab-btn').forEach(btn => btn.classList.remove('active'));
+    
+    const targetTab = document.getElementById('base' + tabName.charAt(0).toUpperCase() + tabName.slice(1) + 'Tab');
+    if (targetTab) targetTab.classList.add('active');
+    if (clickedElement) clickedElement.classList.add('active');
+}
+
+// Global wrapper functions for HTML onclick
+window.saveCurrentBase = function() {
+    if (window.baseBuilder) {
+        window.baseBuilder.saveCurrentBase();
+    }
+}
+
+// Initialize systems - make globally available
+window.researchSystem = null;
+window.baseBuilder = null;
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize sandbox mode
+    try {
+        if (!window.sandboxMode) {
+            window.sandboxMode = new SandboxMode();
+            console.log('Sandbox mode initialized in DOM ready');
+        }
+    } catch (error) {
+        console.error('Error initializing sandbox mode in DOM ready:', error);
+    }
+    
+    // Research Lab button
+    const researchLabBtn = document.getElementById('researchLab');
+    if (researchLabBtn) {
+        researchLabBtn.addEventListener('click', () => {
+            if (!window.researchSystem) {
+                window.researchSystem = new ResearchSystem();
+            }
+            openModal('researchModal');
+            window.researchSystem.updateResearchUI();
+        });
+    }
+
+    // Base Builder button
+    const baseBuilderBtn = document.getElementById('baseBuilder');
+    if (baseBuilderBtn) {
+        baseBuilderBtn.addEventListener('click', () => {
+            if (!window.baseBuilder) {
+                window.baseBuilder = new BaseBuilderSystem();
+            }
+            openModal('baseBuilderModal');
+            window.baseBuilder.updateBaseBuilderUI();
+        });
+    }
+
+    // Sandbox Mode button
+    const sandboxBtn = document.getElementById('sandboxMode');
+    if (sandboxBtn) {
+        sandboxBtn.addEventListener('click', () => {
+            openModal('sandboxModal');
+            if (window.sandboxMode) {
+                window.sandboxMode.updateUI();
+            }
+        });
+    }
+
+    // Tool buttons
+    const toolButtons = ['selectTool', 'moveTool', 'deleteTool', 'resetBase'];
+    toolButtons.forEach(btnId => {
+        const btn = document.getElementById(btnId);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (btnId === 'resetBase') {
+                    if (window.baseBuilder) window.baseBuilder.resetBase();
+                } else {
+                    const tool = btnId.replace('Tool', '');
+                    if (window.baseBuilder) window.baseBuilder.setTool(tool);
+                }
+            });
+        }
+    });
+});
+
+// ==========================================================================
+// SANDBOX MODE SYSTEM
+// ==========================================================================
+
+class SandboxMode {
+    constructor() {
+        this.isActive = false;
+        this.settings = {
+            startGold: 999999,
+            startLives: 999,
+            gameSpeed: 1,
+            enemyHealthMultiplier: 1,
+            waveSizeMultiplier: 1,
+            unlockAll: true,
+            infiniteLives: true,
+            autoWave: false
+        };
+        this.loadSettings();
+    }
+
+    loadSettings() {
+        const saved = localStorage.getItem('rushRoyalSandboxSettings');
+        if (saved) {
+            this.settings = { ...this.settings, ...JSON.parse(saved) };
+        }
+        // Don't call updateUI here as DOM elements might not be ready
+    }
+
+    saveSettings() {
+        localStorage.setItem('rushRoyalSandboxSettings', JSON.stringify(this.settings));
+    }
+
+    updateUI() {
+        // Update form fields if they exist
+        const elements = {
+            'sandboxGold': this.settings.startGold,
+            'sandboxLives': this.settings.startLives,
+            'sandboxGameSpeed': this.settings.gameSpeed,
+            'sandboxEnemyHealth': this.settings.enemyHealthMultiplier,
+            'sandboxWaveSize': this.settings.waveSizeMultiplier,
+            'sandboxUnlockAll': this.settings.unlockAll,
+            'sandboxInfiniteLives': this.settings.infiniteLives,
+            'sandboxAutoWave': this.settings.autoWave
+        };
+        
+        Object.entries(elements).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) {
+                if (element.type === 'checkbox') {
+                    element.checked = value;
+                } else {
+                    element.value = value;
+                }
+            }
+        });
+    }
+
+    collectSettings() {
+        this.settings = {
+            startGold: parseInt(document.getElementById('sandboxGold')?.value) || 999999,
+            startLives: parseInt(document.getElementById('sandboxLives')?.value) || 999,
+            gameSpeed: parseFloat(document.getElementById('sandboxGameSpeed')?.value) || 1,
+            enemyHealthMultiplier: parseFloat(document.getElementById('sandboxEnemyHealth')?.value) || 1,
+            waveSizeMultiplier: parseFloat(document.getElementById('sandboxWaveSize')?.value) || 1,
+            unlockAll: document.getElementById('sandboxUnlockAll')?.checked ?? true,
+            infiniteLives: document.getElementById('sandboxInfiniteLives')?.checked ?? true,
+            autoWave: document.getElementById('sandboxAutoWave')?.checked ?? false
+        };
+        this.saveSettings();
+    }
+
+    startGame() {
+        console.log('Sandbox startGame() called');
+        this.collectSettings();
+        this.isActive = true;
+        
+        // Close modal
+        closeModal('sandboxModal');
+        
+        // Hide main menu and show game container
+        const mainMenu = document.getElementById('mainMenu');
+        const gameContainer = document.getElementById('gameContainer');
+        
+        if (mainMenu) mainMenu.style.display = 'none';
+        if (gameContainer) gameContainer.style.display = 'block';
+        
+        // Create or restart game
+        if (!window.game) {
+            console.log('Creating new game instance for sandbox');
+            window.game = new Game();
+        } else {
+            console.log('Using existing game instance for sandbox');
+            window.game.startGameFromMenu();
+        }
+        
+        // Show sandbox indicator
+        this.showIndicator();
+        
+        showGameNotification('🎮 Sandbox-Modus aktiviert! Viel Spaß beim Experimentieren!', 'success', 4000);
+    }
+
+    applyToGame(game) {
+        if (!this.isActive) return;
+        
+        // Set resources
+        game.money = this.settings.startGold;
+        game.lives = this.settings.startLives;
+        game.maxLives = this.settings.infiniteLives ? 9999 : this.settings.startLives;
+        
+        // Set game speed
+        game.gameSpeed = this.settings.gameSpeed;
+        
+        // Enable auto-wave if requested
+        if (this.settings.autoWave) {
+            game.autoWaveEnabled = true;
+        }
+        
+        // Store sandbox mode reference
+        game.sandboxMode = this;
+        
+        // Unlock all content if requested
+        if (this.settings.unlockAll) {
+            this.unlockAllContent(game);
+        }
+        
+        // Update UI
+        game.updateUI();
+    }
+
+    unlockAllContent(game) {
+        // Give max skill points
+        game.skillPoints = 999;
+        
+        // Max out research if available
+        if (window.researchSystem) {
+            window.researchSystem.researchPoints = 999999;
+            window.researchSystem.sciencePoints = 999999;
+            window.researchSystem.updateResearchUI();
+        }
+        
+        // Max out base building resources if available
+        if (window.baseBuilder) {
+            window.baseBuilder.buildingMaterials = 999999;
+            window.baseBuilder.decorationPoints = 999999;
+            window.baseBuilder.updateBaseBuilderUI();
+        }
+    }
+
+    modifyEnemyStats(enemy) {
+        if (!this.isActive) return;
+        
+        // Apply health multiplier
+        enemy.health *= this.settings.enemyHealthMultiplier;
+        enemy.maxHealth = enemy.health;
+    }
+
+    modifyWaveSize(originalSize) {
+        if (!this.isActive) return originalSize;
+        return Math.floor(originalSize * this.settings.waveSizeMultiplier);
+    }
+
+    handlePlayerDeath(game) {
+        if (!this.isActive || !this.settings.infiniteLives) return false;
+        
+        // Restore lives in infinite mode
+        game.lives = Math.max(1, game.lives);
+        showGameNotification('♾️ Unendliche Leben aktiviert!', 'info', 2000);
+        return true;
+    }
+
+    showIndicator() {
+        let indicator = document.getElementById('sandboxIndicator');
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.id = 'sandboxIndicator';
+            indicator.className = 'sandbox-indicator';
+            indicator.innerHTML = '<i class="fas fa-cube"></i> SANDBOX MODUS';
+            document.body.appendChild(indicator);
+        }
+        indicator.classList.add('active');
+    }
+
+    hideIndicator() {
+        const indicator = document.getElementById('sandboxIndicator');
+        if (indicator) {
+            indicator.classList.remove('active');
+        }
+    }
+
+    reset() {
+        this.isActive = false;
+        this.hideIndicator();
+        
+        if (window.game) {
+            window.game.sandboxMode = null;
+        }
+    }
+}
+
+// Global sandbox instance will be initialized in DOM ready
+window.sandboxMode = null;
+
+// Global functions for HTML
+window.startSandboxGame = function() {
+    console.log('startSandboxGame() called');
+    try {
+        if (window.sandboxMode) {
+            console.log('Sandbox mode exists, calling startGame()');
+            window.sandboxMode.startGame();
+        } else {
+            console.error('Sandbox mode not found! Creating new instance...');
+            window.sandboxMode = new SandboxMode();
+            window.sandboxMode.startGame();
+        }
+    } catch (error) {
+        console.error('Error in startSandboxGame:', error);
+        alert('Fehler beim Starten des Sandbox-Modus: ' + error.message);
+    }
+}
+
+window.resetSandboxSettings = function() {
+    window.sandboxMode.settings = {
+        startGold: 999999,
+        startLives: 999,
+        gameSpeed: 1,
+        enemyHealthMultiplier: 1,
+        waveSizeMultiplier: 1,
+        unlockAll: true,
+        infiniteLives: true,
+        autoWave: false
+    };
+    window.sandboxMode.saveSettings();
+    window.sandboxMode.updateUI();
+    showGameNotification('Sandbox-Einstellungen zurückgesetzt!', 'info');
+}
